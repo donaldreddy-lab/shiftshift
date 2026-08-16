@@ -120,15 +120,15 @@ function maxConcurrent(placedBreaks, start, end, includeSelf) {
 // gap between one person's own breaks.
 function placeShiftBreaks(shift, placedBreaks, hard, lateThreshold, deadline) {
   const durations = getBreakDurations(shift.shift_minutes);
-  const winStart = shift.start_minutes + 120;
-  const winEndRaw = shift.end_minutes - 90;
+  const winStart = shift.start_minutes + 90;
+  const winEndRaw = shift.end_minutes - 60;
   const winEnd = deadline != null ? Math.min(winEndRaw, deadline) : winEndRaw;
   let prevEnd = shift.start_minutes;
   for (let i = 0; i < durations.length; i++) {
     const d = durations[i];
     const gapEarliest = Math.max(winStart, prevEnd + (i === 0 ? 0 : 120));
-    // First break must start no more than 3 hours into the shift.
-    const firstBreakDeadline = shift.start_minutes + 180;
+    // First break must start between 1.5h and 3.5h into the shift.
+    const firstBreakDeadline = shift.start_minutes + 210;
     const latest = i === 0 ? Math.min(winEnd - d, firstBreakDeadline) : winEnd - d;
     const lastResortLatest = i === 0 ? Math.min(winEnd - d, firstBreakDeadline) : winEnd - d;
     const ideal = winStart + Math.round((i + 1) * (winEnd - winStart - d) / (durations.length + 1));

@@ -10,7 +10,7 @@ const AREAS = [
 const REQUIRES_18 = new Set(["Nursery Greeter", "People Greeter"]);
 const REQUIRES_TRAINING = new Set(["Info Desk", "Hire Shop", "Front End Support", "Cafe"]);
 // Areas that must always have at least one person present — breaks need a cover
-const ALWAYS_COVERED = new Set(["People Greeter", "Nursery Register", "Nursery Greeter", "Toolshop Register", "Register", "Info Desk"]);
+const ALWAYS_COVERED = new Set(["People Greeter", "Nursery Register", "Nursery Greeter", "Toolshop Register", "Register", "Info Desk", "Cafe", "Hire Shop"]);
 // Areas that manage their own break cover internally — no cover assignment needed
 const SELF_MANAGED = new Set(["Online Fulfilment", "Click and Collect"]);
 
@@ -269,6 +269,12 @@ export default async function(req) {
         // must not already be covering another break at this time
         const alreadyCovering = allBreaks.some(o => o.cover === shift.name && overlaps(brk.start_minutes, brk.end_minutes, o.start_minutes, o.end_minutes));
         if (alreadyCovering) continue;
+        // don't pull someone out of an always-covered area if they're the only
+        // person staffing it during this break (would leave that area empty)
+        if (ALWAYS_COVERED.has(shift.area)) {
+          const othersInArea = shifts.filter(s => s.name !== shift.name && s.area === shift.area && s.start_minutes <= brk.start_minutes && s.end_minutes >= brk.end_minutes && !allBreaks.some(o => o.team_member === s.name && overlaps(brk.start_minutes, brk.end_minutes, o.start_minutes, o.end_minutes)));
+          if (othersInArea.length === 0) continue;
+        }
         // qualification checks
         const coverMember = byName[normName(shift.name)];
         if (coverMember) {

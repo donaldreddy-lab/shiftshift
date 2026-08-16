@@ -6,6 +6,7 @@ function fmt(min) {
 }
 
 import { EQUIV, SELF_MANAGED, resolveCoverage } from "./coverageDefaults";
+import { memberColor, initials, hexToRgb } from "./memberColor";
 
 const STATUS_RGB = {
   covered: [16, 185, 129],
@@ -118,10 +119,12 @@ export async function exportGanttPdf(schedule, coverage) {
       }
       const pm = s.start_minutes >= 720;
       // name label
+      doc.setFillColor(...hexToRgb(memberColor(s.name)));
+      doc.circle(margin + 5, y + 7, 2.4, "F");
       doc.setFont("helvetica", "normal");
       doc.setFontSize(8);
       doc.setTextColor(17, 24, 39);
-      doc.text(String(s.name || ""), margin + 2, y + 10);
+      doc.text(String(s.name || ""), margin + 12, y + 10);
       // shift bar
       const sx = X(s.start_minutes);
       const ex = X(s.end_minutes);
@@ -137,8 +140,16 @@ export async function exportGanttPdf(schedule, coverage) {
       sBreaks.forEach((b) => {
         const bx = X(b.start_minutes);
         const bw = Math.max(3, X(b.end_minutes) - X(b.start_minutes));
-        doc.setFillColor(...(STATUS_RGB[b.status] || [148, 163, 184]));
+        const hasCover = b.cover && b.cover.trim();
+        const rgb = hasCover ? hexToRgb(memberColor(b.cover)) : (STATUS_RGB[b.status] || [148, 163, 184]);
+        doc.setFillColor(...rgb);
         doc.roundedRect(bx, y + 2, bw, rowH - 4, 1.5, 1.5, "F");
+        if (hasCover && bw >= 26) {
+          doc.setTextColor(255, 255, 255);
+          doc.setFont("helvetica", "bold");
+          doc.setFontSize(6.5);
+          doc.text(initials(b.cover), bx + bw / 2, y + rowH / 2 + 1, { align: "center" });
+        }
       });
       y += rowH;
     }

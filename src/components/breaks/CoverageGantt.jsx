@@ -3,6 +3,7 @@ import { ChevronDown, Clock, Users, AlertTriangle, FileDown, Loader2 } from "luc
 import { base44 } from "@/api/base44Client";
 import { exportGanttPdf } from "@/utils/exportGanttPdf";
 import { EQUIV, SELF_MANAGED, resolveCoverage } from "@/utils/coverageDefaults";
+import { memberColor, initials } from "@/utils/memberColor";
 
 const STATUS_COLOR = {
   covered: "#10b981",
@@ -186,8 +187,9 @@ export default function CoverageGantt({ schedule }) {
                     const sBreaks = (breaks || []).filter((b) => b.team_member === s.name);
                     return (
                       <div key={s.name} className="relative flex items-center" style={{ height: rowH }}>
-                        <div style={{ width: labelW }} className="pr-2 truncate text-xs font-medium truncate">
-                          {s.name}
+                        <div style={{ width: labelW }} className="pr-2 flex items-center gap-1.5">
+                          <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ background: memberColor(s.name) }} />
+                          <span className="truncate text-xs font-medium">{s.name}</span>
                         </div>
                         <div className="relative" style={{ width: timelineW, height: rowH }}>
                           {/* shift bar */}
@@ -204,23 +206,29 @@ export default function CoverageGantt({ schedule }) {
                           />
                           {/* break blocks */}
                           {sBreaks.map((b, i) => {
-                            const color = STATUS_COLOR[b.status] || "#94a3b8";
+                            const hasCover = b.cover && b.cover.trim();
+                            const color = hasCover ? memberColor(b.cover) : (STATUS_COLOR[b.status] || "#94a3b8");
+                            const bw = Math.max(6, X(b.end_minutes) - X(b.start_minutes));
                             return (
                               <div
                                 key={i}
-                                className="absolute rounded-sm"
+                                className="absolute rounded-sm flex items-center justify-center"
                                 style={{
                                   left: X(b.start_minutes),
-                                  width: Math.max(6, X(b.end_minutes) - X(b.start_minutes)),
+                                  width: bw,
                                   top: 3,
                                   height: rowH - 6,
                                   background: color,
                                   opacity: 0.92,
                                 }}
                                 title={`${fmt(b.start_minutes)}–${fmt(b.end_minutes)} (${b.duration}m) ${
-                                  b.cover ? "→ " + b.cover : b.status
+                                  hasCover ? "→ " + b.cover : b.status
                                 }`}
-                              />
+                              >
+                                {hasCover && bw >= 26 && (
+                                  <span className="text-[8px] font-bold text-white truncate px-0.5">{initials(b.cover)}</span>
+                                )}
+                              </div>
                             );
                           })}
                           {/* start/end ticks */}

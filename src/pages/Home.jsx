@@ -1,17 +1,46 @@
 import React, { useState, useEffect } from "react";
-import { Info, Sparkles } from "lucide-react";
+import { Info, Sparkles, RefreshCw, Loader2 } from "lucide-react";
 import { base44 } from "@/api/base44Client";
 import UploadRoster from "@/components/breaks/UploadRoster";
 import SummaryCards from "@/components/breaks/SummaryCards";
 import BreakScheduleView from "@/components/breaks/BreakScheduleView";
+import CoverageGantt from "@/components/breaks/CoverageGantt";
 import PullToRefresh from "@/components/breaks/PullToRefresh";
 
 export default function Home() {
   const [schedule, setSchedule] = useState(null);
+  const [refreshing, setRefreshing] = useState(false);
+  const [refreshError, setRefreshError] = useState("");
 
   const loadSchedule = async () => {
     const list = await base44.entities.BreakSchedule.list("-created_date", 1);
     if (list.length > 0) setSchedule(list[0]);
+  };
+
+  // Re-run generation using the current roster but the latest TeamMember
+  // settings (training / age). Updates the existing schedule in place.
+  const refreshWithSettings = async () => {
+    if (!schedule) return;
+    setRefreshing(true);
+    setRefreshError("");
+    try {
+      const roster = (schedule.shifts || []).map((s) => ({
+        name: s.name,
+        start_time: s.start,
+        end_time: s.end,
+        area: s.area,
+      }));
+      const res = await base44.functions.invoke("generateBreaks", {
+        roster,
+        schedule_date: schedule.schedule_date,
+        schedule_id: schedule.id,
+      });
+      setSchedule(res.data);
+    } catch (e) {
+      setRefreshError(e.response?.data?.error || e.message || "Refresh failed.");
+    } finally {
+      setRefreshing(false);
+    }
   };
 
   useEffect(() => {
@@ -33,6 +62,23 @@ export default function Home() {
         {schedule && (
           <>
             <SummaryCards summary={schedule.summary} />
+
+            <div className="flex flex-wrap items-center gap-2">
+              <button
+                onClick={refreshWithSettings}
+                disabled={refreshing}
+                className="inline-flex items-center gap-1.5 px-3 min-h-[44px] rounded-lg text-xs font-medium bg-primary text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
+              >
+                {refreshing ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <RefreshCw className="w-3.5 h-3.5" />}
+                {refreshing ? "Refreshing…" : "Refresh with updated settings"}
+              </button>
+              <span className="text-xs text-muted-foreground">
+                Re-generates covers using the latest team member training & age settings.
+              </span>
+            </div>
+            {refreshError && <p className="text-sm text-destructive">{refreshError}</p>}
+
+            <CoverageGantt schedule={schedule} />
 
             {schedule.summary?.new_members?.length > 0 && (
               <div className="rounded-2xl border border-blue-200 bg-blue-50/60 px-5 py-4">

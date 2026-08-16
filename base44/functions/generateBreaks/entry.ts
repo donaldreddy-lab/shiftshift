@@ -507,8 +507,9 @@ export default async function(req) {
     const unassigned = allBreaks.filter(b => b.status === "unassigned").length;
     const selfManaged = allBreaks.filter(b => b.status === "self-managed").length;
 
-    // Save schedule
-    const schedule = await base44.asServiceRole.entities.BreakSchedule.create({
+    // Save schedule — when a schedule_id is supplied (refresh after settings
+    // changes), update the existing record in place instead of creating a dupe.
+    const schedulePayload = {
       schedule_date: scheduleDate,
       status: "generated",
       shifts,
@@ -521,7 +522,13 @@ export default async function(req) {
         self_managed: selfManaged,
         new_members: newMembers
       }
-    });
+    };
+    let schedule;
+    if (body.schedule_id) {
+      schedule = await base44.asServiceRole.entities.BreakSchedule.update(body.schedule_id, schedulePayload);
+    } else {
+      schedule = await base44.asServiceRole.entities.BreakSchedule.create(schedulePayload);
+    }
 
     return Response.json({
       schedule_id: schedule.id,

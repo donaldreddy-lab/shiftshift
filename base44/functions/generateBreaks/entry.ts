@@ -188,34 +188,31 @@ function placeShiftBreaks(shift, placedBreaks, allShifts, hard, lateThreshold, d
       const score = mcLate * mcLate * 100000 + mcAll * 10000 + coverGap + Math.abs(s - ideal);
       return { start: s, end: e, duration: d, score };
     };
-    // Pass 1: respect the 2-hour gap and coverage minimum (hard).
+    // The 2-hour gap between one person's own breaks is a HARD rule — it is
+    // never relaxed, so two breaks for the same person never stack back-to-back.
+    // Pass 1: 2-hour gap + coverage minimum (hard).
     if (gapEarliest <= latest) {
       for (let s = snapUp15(gapEarliest); s <= latest; s += 15) {
         const cand = trySlot(s, false, true);
         if (cand && (!best || cand.score < best.score)) best = cand;
       }
     }
-    // Pass 2: relax the 2-hour gap — coverage minimum still hard.
-    if (!best && winStart <= latest) {
-      for (let s = snapUp15(winStart); s <= latest; s += 15) {
-        const cand = trySlot(s, false, true);
-        if (cand && (!best || cand.score < best.score)) best = cand;
-      }
-    }
-    // Last resort: the window is genuinely over-subscribed — allow the
-    // 2-overlap cap to be breached AND relax the coverage minimum to a penalty,
-    // so overflow breaks still place rather than failing entirely.
-    if (!best && winStart <= lastResortLatest) {
-      for (let s = snapUp15(winStart); s <= lastResortLatest; s += 15) {
+    // Pass 2 (last resort): 2-hour gap still hard, relax the coverage minimum to
+    // a penalty so overflow breaks still place without sitting on each other.
+    if (!best && gapEarliest <= lastResortLatest) {
+      for (let s = snapUp15(gapEarliest); s <= lastResortLatest; s += 15) {
         const cand = trySlot(s, true, false);
         if (cand && (!best || cand.score < best.score)) best = cand;
       }
     }
-    // Absolute fallback: clamp to the after-hours deadline (own-overlap only).
+    // Absolute fallback: honour the 2-hour gap; only pull the break earlier if
+    // the after-hours deadline or the shift end force it.
     if (!best) {
-      let s = winStart <= lastResortLatest ? lastResortLatest : snapUp15(gapEarliest);
+      let s = snapUp15(gapEarliest);
       if (i === 0 && s > firstBreakDeadline) s = firstBreakDeadline;
-      if (deadline != null && s + d > deadline) s = Math.max(shift.start_minutes + 120, deadline - d);
+      if (deadline != null && s + d > deadline) s = deadline - d;
+      if (s + d > shift.end_minutes) s = shift.end_minutes - d;
+      if (s < shift.start_minutes) s = shift.start_minutes;
       best = { start: s, end: s + d, duration: d };
     }
     placedBreaks.push({

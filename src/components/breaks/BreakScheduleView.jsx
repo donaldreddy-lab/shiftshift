@@ -1,120 +1,10 @@
-import React, { useState } from "react";
-import {
-  AlertTriangle, CheckCircle2, ArrowLeftRight,
-  Pencil, Save, FileDown, X, Loader2,
-} from "lucide-react";
+import React, { useState, useMemo } from "react";
+import { Pencil, Save, FileDown, X, Loader2, ArrowLeftRight } from "lucide-react";
 import { base44 } from "@/api/base44Client";
 import { exportBreaksPdf } from "@/utils/exportBreaksPdf";
-
-const STATUS_OPTIONS = [
-  { value: "covered", label: "Covered" },
-  { value: "self-managed", label: "Self-managed" },
-  { value: "unassigned", label: "Needs cover" },
-  { value: "flagged", label: "Flagged" },
-];
-
-const PEACH = "#fcebd8";
-const HEADER_BG = "#d9d9d9";
-const SUBHEADER_BG = "#f2f2f2";
-const GRID = "#595959";
-const BREAK_BG = ["#dbeafe", "#dcfce7", "#ede9fe"]; // break 1, 2, 3
-
-function fmt(min) {
-  let m = ((min % 1440) + 1440) % 1440;
-  const h = Math.floor(m / 60);
-  const mm = m % 60;
-  return String(h).padStart(2, "0") + ":" + String(mm).padStart(2, "0");
-}
-
-function timeToMinutes(t) {
-  const [h, m] = String(t || "").split(":").map((x) => parseInt(x, 10));
-  if (isNaN(h) || isNaN(m)) return null;
-  return h * 60 + m;
-}
-
-function BreakCell({ b, editing, onUpdate, overlap = 1 }) {
-  if (!b) {
-    return <span className="text-black/30">—</span>;
-  }
-  if (editing) {
-    return (
-      <div className="flex flex-col gap-1">
-        <div className="flex items-center gap-1">
-          <input
-            type="time"
-            value={fmt(b.start_minutes)}
-            onChange={(e) => onUpdate({ start: e.target.value })}
-            className="w-[78px] h-7 rounded border border-black/20 bg-white px-1 text-[11px]"
-          />
-          <span className="text-black/40">@</span>
-          <input
-            type="number"
-            min="5"
-            step="5"
-            value={b.duration}
-            onChange={(e) => onUpdate({ duration: e.target.value })}
-            className="w-[52px] h-7 rounded border border-black/20 bg-white px-1 text-[11px]"
-          />
-          <span className="text-black/40 text-[11px]">m</span>
-        </div>
-        <input
-          type="text"
-          value={b.cover || ""}
-          placeholder="cover"
-          onChange={(e) => onUpdate({ cover: e.target.value })}
-          className="w-full h-7 rounded border border-black/20 bg-white px-1.5 text-[11px]"
-        />
-        <select
-          value={b.status}
-          onChange={(e) => onUpdate({ status: e.target.value })}
-          className="h-7 rounded border border-black/20 bg-white px-1 text-[11px]"
-        >
-          {STATUS_OPTIONS.map((o) => (
-            <option key={o.value} value={o.value}>{o.label}</option>
-          ))}
-        </select>
-      </div>
-    );
-  }
-  const time = fmt(b.start_minutes);
-  const len = `${b.duration}m`;
-  let coverLine;
-  if (b.status === "self-managed") {
-    coverLine = <span className="text-[11px] text-sky-700 font-medium">Self-managed</span>;
-  } else if (b.cover) {
-    coverLine = (
-      <span className="text-[11px] text-black/70 flex items-center gap-1">
-        <ArrowLeftRight className="w-3 h-3" /> {b.cover}
-      </span>
-    );
-  } else if (b.status === "flagged") {
-    coverLine = (
-      <span className="text-[11px] text-amber-700 font-medium flex items-center gap-1" title={b.flag_reason}>
-        <AlertTriangle className="w-3 h-3" /> Swap needed
-      </span>
-    );
-  } else if (b.status === "unassigned") {
-    coverLine = (
-      <span className="text-[11px] text-slate-600 font-medium flex items-center gap-1" title={b.flag_reason}>
-        <ArrowLeftRight className="w-3 h-3" /> Pull from floor
-      </span>
-    );
-  } else {
-    coverLine = <span className="text-[11px] text-black/40">No cover</span>;
-  }
-  return (
-    <div className="flex flex-col leading-tight">
-      {overlap >= 2 && (
-        <span className={`inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[10px] font-bold mb-1 ${overlap >= 3 ? "bg-red-600 text-white" : "bg-amber-400 text-black"}`}>
-          <AlertTriangle className="w-2.5 h-2.5" /> {overlap} on at once
-        </span>
-      )}
-      <span className="text-[12px] font-semibold text-black">{time}</span>
-      <span className="text-[11px] text-black/50">({len})</span>
-      {coverLine}
-    </div>
-  );
-}
+import BreakCell from "./BreakCell";
+import BreakScheduleMobile from "./BreakScheduleMobile";
+import { fmt, timeToMinutes, PEACH, HEADER_BG, SUBHEADER_BG, GRID, BREAK_BG } from "./breakUtils";
 
 export default function BreakScheduleView({ schedule, onSaved }) {
   const [editing, setEditing] = useState(false);
@@ -124,11 +14,8 @@ export default function BreakScheduleView({ schedule, onSaved }) {
   const breaks = editing ? draft : schedule.breaks || [];
   const shifts = schedule.shifts || [];
 
-  // group breaks per team member, sorted by start
   const breaksByName = {};
-  for (const b of breaks) {
-    (breaksByName[b.team_member] ||= []).push(b);
-  }
+  for (const b of breaks) (breaksByName[b.team_member] ||= []).push(b);
   for (const k in breaksByName) {
     breaksByName[k].sort((a, b) => (a.start_minutes ?? 0) - (b.start_minutes ?? 0));
   }
@@ -136,12 +23,13 @@ export default function BreakScheduleView({ schedule, onSaved }) {
   const maxBreaks = Math.max(1, ...shifts.map((s) => (breaksByName[s.name] || []).length));
   const breakCols = Array.from({ length: maxBreaks }, (_, i) => i);
 
-  // Max concurrent breaks for each break (how many overlap at once) — used to
-  // highlight cells that breach the 2-at-a-time rule.
-  const overlapMap = React.useMemo(() => {
+  const overlapMap = useMemo(() => {
     const m = new Map();
     for (const b of breaks) {
-      if (b.start_minutes == null || b.end_minutes == null) { m.set(b, 1); continue; }
+      if (b.start_minutes == null || b.end_minutes == null) {
+        m.set(b, 1);
+        continue;
+      }
       const events = [];
       for (const o of breaks) {
         if (o.start_minutes == null || o.end_minutes == null) continue;
@@ -151,8 +39,12 @@ export default function BreakScheduleView({ schedule, onSaved }) {
         }
       }
       events.sort((x, y) => x[0] - y[0] || x[1] - y[1]);
-      let cur = 0, mx = 0;
-      for (const ev of events) { cur += ev[1]; if (cur > mx) mx = cur; }
+      let cur = 0,
+        mx = 0;
+      for (const ev of events) {
+        cur += ev[1];
+        if (cur > mx) mx = cur;
+      }
       m.set(b, mx);
     }
     return m;
@@ -202,7 +94,6 @@ export default function BreakScheduleView({ schedule, onSaved }) {
 
   const needsCover = breaks.filter((b) => b.status === "unassigned" || b.status === "flagged");
 
-  // Sort rows by each person's first break start time for readability.
   const sortedShifts = [...shifts].sort((a, b) => {
     const aStart = (breaksByName[a.name] || []).reduce((m, x) => Math.min(m, x.start_minutes ?? Infinity), Infinity);
     const bStart = (breaksByName[b.name] || []).reduce((m, x) => Math.min(m, x.start_minutes ?? Infinity), Infinity);
@@ -211,7 +102,7 @@ export default function BreakScheduleView({ schedule, onSaved }) {
 
   return (
     <div className="rounded-2xl border border-border bg-card shadow-sm overflow-hidden">
-      <div className="flex flex-wrap items-center gap-2 px-5 py-4 border-b border-border">
+      <div className="flex flex-wrap items-center gap-2 px-4 md:px-5 py-4 border-b border-border">
         <h2 className="font-heading font-semibold text-base mr-auto">
           Break list — {schedule.schedule_date}
         </h2>
@@ -220,30 +111,29 @@ export default function BreakScheduleView({ schedule, onSaved }) {
             <button
               onClick={cancelEdit}
               disabled={saving}
-              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-muted text-muted-foreground hover:bg-muted/70 disabled:opacity-50"
+              className="inline-flex items-center gap-1.5 px-3 min-h-[44px] rounded-lg text-xs font-medium bg-muted text-muted-foreground hover:bg-muted/70 disabled:opacity-50"
             >
               <X className="w-3.5 h-3.5" /> Cancel
             </button>
             <button
               onClick={save}
               disabled={saving}
-              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-primary text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
+              className="inline-flex items-center gap-1.5 px-3 min-h-[44px] rounded-lg text-xs font-medium bg-primary text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
             >
-              {saving ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Save className="w-3.5 h-3.5" />}
-              Save
+              {saving ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Save className="w-3.5 h-3.5" />} Save
             </button>
           </div>
         ) : (
           <div className="flex items-center gap-2">
             <button
               onClick={startEdit}
-              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-muted text-muted-foreground hover:bg-muted/70"
+              className="inline-flex items-center gap-1.5 px-3 min-h-[44px] rounded-lg text-xs font-medium bg-muted text-muted-foreground hover:bg-muted/70"
             >
               <Pencil className="w-3.5 h-3.5" /> Edit
             </button>
             <button
               onClick={() => exportBreaksPdf(schedule)}
-              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-primary text-primary-foreground hover:bg-primary/90"
+              className="inline-flex items-center gap-1.5 px-3 min-h-[44px] rounded-lg text-xs font-medium bg-primary text-primary-foreground hover:bg-primary/90"
             >
               <FileDown className="w-3.5 h-3.5" /> Export PDF
             </button>
@@ -251,7 +141,19 @@ export default function BreakScheduleView({ schedule, onSaved }) {
         )}
       </div>
 
-      <div className="overflow-x-auto">
+      {/* Mobile card layout */}
+      <div className="md:hidden p-3 bg-muted/20">
+        <BreakScheduleMobile
+          shifts={sortedShifts}
+          breaks={breaks}
+          overlapMap={overlapMap}
+          editing={editing}
+          onUpdateBreak={updateBreak}
+        />
+      </div>
+
+      {/* Desktop table */}
+      <div className="hidden md:block overflow-x-auto">
         <table className="w-full text-sm border-collapse" style={{ minWidth: 720 }}>
           <thead>
             <tr>
@@ -282,7 +184,7 @@ export default function BreakScheduleView({ schedule, onSaved }) {
           <tbody>
             {sortedShifts.map((s, idx) => {
               const bs = breaksByName[s.name] || [];
-              const pm = s.start_minutes >= 720; // afternoon/evening shift → peach highlight
+              const pm = s.start_minutes >= 720;
               const rowBg = pm ? PEACH : "#ffffff";
               return (
                 <tr key={idx} style={{ background: rowBg }}>
@@ -292,14 +194,15 @@ export default function BreakScheduleView({ schedule, onSaved }) {
                   <td className="text-black border px-3 py-2 align-top" style={{ borderColor: GRID }}>{s.end}</td>
                   {breakCols.map((i) => {
                     const b = bs[i];
-                    const ov = b ? (overlapMap.get(b) || 1) : 0;
+                    const ov = b ? overlapMap.get(b) || 1 : 0;
                     return (
                       <td
                         key={i}
                         className="border px-3 py-2 align-top"
                         style={{
                           borderColor: GRID,
-                          background: ov >= 3 ? "#fecaca" : ov === 2 ? "#fde68a" : BREAK_BG[i % BREAK_BG.length],
+                          background:
+                            ov >= 3 ? "#fecaca" : ov === 2 ? "#fde68a" : BREAK_BG[i % BREAK_BG.length],
                           boxShadow: ov >= 2 ? `inset 0 0 0 2px ${ov >= 3 ? "#dc2626" : "#f59e0b"}` : undefined,
                         }}
                       >

@@ -1,5 +1,3 @@
-import { jsPDF } from "jspdf";
-
 function fmt(min) {
   let m = ((min % 1440) + 1440) % 1440;
   const h = Math.floor(m / 60);
@@ -7,8 +5,12 @@ function fmt(min) {
   return String(h).padStart(2, "0") + ":" + String(mm).padStart(2, "0");
 }
 
-export function exportBreaksPdf(schedule) {
-  const breaks = [...(schedule.breaks || [])].sort((a, b) => (a.start_minutes ?? 0) - (b.start_minutes ?? 0));
+export async function exportBreaksPdf(schedule) {
+  const { jsPDF } = await import("jspdf");
+
+  const breaks = [...(schedule.breaks || [])].sort(
+    (a, b) => (a.start_minutes ?? 0) - (b.start_minutes ?? 0)
+  );
   const doc = new jsPDF({ orientation: "landscape", unit: "pt", format: "a4" });
   const pageW = doc.internal.pageSize.getWidth();
   const margin = 28;
@@ -72,9 +74,13 @@ export function exportBreaksPdf(schedule) {
     const time = `${fmt(b.start_minutes)} – ${fmt(b.end_minutes)}`;
     const dur = `${b.duration}m`;
     const statusLabel =
-      b.status === "covered" ? "Covered" :
-      b.status === "self-managed" ? "Self-managed" :
-      "Flagged";
+      b.status === "covered"
+        ? "Covered"
+        : b.status === "self-managed"
+        ? "Self-managed"
+        : b.status === "unassigned"
+        ? "Needs cover"
+        : "Flagged";
     const cover = b.cover ? `${b.cover}${b.cover_area ? " (" + b.cover_area + ")" : ""}` : "—";
     doc.setTextColor(33, 33, 33);
     doc.text(time, cols[0].x, y);
@@ -84,6 +90,7 @@ export function exportBreaksPdf(schedule) {
     doc.text(String(cover).slice(0, 26), cols[4].x, y);
     if (b.status === "covered") doc.setTextColor(4, 120, 87);
     else if (b.status === "self-managed") doc.setTextColor(2, 132, 199);
+    else if (b.status === "unassigned") doc.setTextColor(100, 116, 139);
     else doc.setTextColor(180, 83, 9);
     doc.text(statusLabel, cols[5].x, y);
     y += rowH;

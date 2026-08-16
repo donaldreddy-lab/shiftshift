@@ -1,22 +1,25 @@
 import React, { useState, useEffect } from "react";
 import { Info, Sparkles } from "lucide-react";
 import { base44 } from "@/api/base44Client";
-import Layout from "@/components/Layout";
 import UploadRoster from "@/components/breaks/UploadRoster";
 import SummaryCards from "@/components/breaks/SummaryCards";
 import BreakScheduleView from "@/components/breaks/BreakScheduleView";
+import PullToRefresh from "@/components/breaks/PullToRefresh";
 
 export default function Home() {
   const [schedule, setSchedule] = useState(null);
 
+  const loadSchedule = async () => {
+    const list = await base44.entities.BreakSchedule.list("-created_date", 1);
+    if (list.length > 0) setSchedule(list[0]);
+  };
+
   useEffect(() => {
-    base44.entities.BreakSchedule.list('-created_date', 1)
-      .then((list) => { if (list.length > 0) setSchedule(list[0]); })
-      .catch(() => {});
+    loadSchedule().catch(() => {});
   }, []);
 
   return (
-    <Layout>
+    <PullToRefresh onRefresh={loadSchedule}>
       <div className="max-w-5xl mx-auto px-5 md:px-8 py-6 md:py-8 space-y-6">
         <div>
           <h1 className="font-heading text-2xl font-semibold tracking-tight">Daily Breaks Generator</h1>
@@ -60,6 +63,6 @@ export default function Home() {
           </div>
         )}
       </div>
-    </Layout>
+    </PullToRefresh>
   );
 }

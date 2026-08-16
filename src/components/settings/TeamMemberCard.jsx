@@ -35,12 +35,15 @@ function serviceYears(start_date) {
 export default function TeamMemberCard({ member, onChange, onDelete }) {
   const [saving, setSaving] = useState(false);
 
+  // Optimistic update: reflect the change immediately, roll back on failure.
   const update = async (patch) => {
+    const prev = member;
     setSaving(true);
+    onChange({ ...member, ...patch });
     try {
       await base44.entities.TeamMember.update(member.id, patch);
-      onChange({ ...member, ...patch });
     } catch (e) {
+      onChange(prev);
       console.error(e);
     } finally {
       setSaving(false);
@@ -84,18 +87,21 @@ export default function TeamMemberCard({ member, onChange, onDelete }) {
             )}
           </div>
         </div>
-        <div className="flex items-center gap-1.5 shrink-0">
-          {saving && <Loader2 className="w-3.5 h-3.5 animate-spin text-muted-foreground" />}
+        <div className="flex items-center gap-1 shrink-0">
+          {saving && <Loader2 className="w-4 h-4 animate-spin text-muted-foreground" />}
           {member.phone_number && (
             <a
               href={`tel:${member.phone_number.replace(/\s+/g, "")}`}
-              className="p-1.5 rounded-lg text-muted-foreground hover:text-emerald-600 hover:bg-emerald-50 transition-colors"
+              className="min-h-[44px] min-w-[44px] flex items-center justify-center rounded-lg text-muted-foreground hover:text-emerald-600 hover:bg-emerald-50 transition-colors"
               title={`Call ${member.phone_number}`}
             >
               <Phone className="w-4 h-4" />
             </a>
           )}
-          <button onClick={() => onDelete(member)} className="p-1.5 rounded-lg text-muted-foreground hover:text-destructive hover:bg-destructive/5 transition-colors">
+          <button
+            onClick={() => onDelete(member)}
+            className="min-h-[44px] min-w-[44px] flex items-center justify-center rounded-lg text-muted-foreground hover:text-destructive hover:bg-destructive/5 transition-colors"
+          >
             <Trash2 className="w-4 h-4" />
           </button>
         </div>
@@ -120,7 +126,7 @@ export default function TeamMemberCard({ member, onChange, onDelete }) {
               <label
                 key={area}
                 className={cn(
-                  "flex items-center gap-2.5 rounded-lg px-2.5 py-2 cursor-pointer text-sm transition-colors border",
+                  "flex items-center gap-2.5 rounded-lg px-2.5 py-2 min-h-[44px] cursor-pointer text-sm transition-colors border",
                   checked ? "bg-primary/5 border-primary/30" : "bg-background border-border hover:bg-muted/40"
                 )}
               >

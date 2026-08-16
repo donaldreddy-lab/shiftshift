@@ -190,7 +190,7 @@ export default function CoverageGantt({ schedule }) {
                         <div style={{ width: labelW }} className="pr-2 flex items-center gap-1.5">
                           <span
                             className="w-2 h-2 rounded-full shrink-0 ring-1 ring-black/10"
-                            style={{ background: memberColor(s.name), opacity: 0.45 }}
+                            style={{ background: memberColor(s.name), opacity: 0.35 }}
                           />
                           <span className="truncate text-xs font-medium">{s.name}</span>
                         </div>
@@ -216,7 +216,9 @@ export default function CoverageGantt({ schedule }) {
                               <div
                                 key={i}
                                 className={`absolute rounded-sm flex items-center justify-center ${
-                                  hasCover ? "ring-2 ring-white shadow-sm" : ""
+                                  hasCover
+                                    ? "ring-[3px] ring-white shadow-md"
+                                    : "ring-1 ring-black/5"
                                 }`}
                                 style={{
                                   left: X(b.start_minutes),
@@ -224,15 +226,18 @@ export default function CoverageGantt({ schedule }) {
                                   top: 3,
                                   height: rowH - 6,
                                   background: color,
-                                  opacity: hasCover ? 1 : 0.6,
-                                  zIndex: hasCover ? 2 : 1,
+                                  opacity: hasCover ? 1 : 0.5,
+                                  zIndex: hasCover ? 3 : 1,
+                                  boxShadow: hasCover
+                                    ? `0 0 0 1.5px ${color}, 0 2px 4px rgba(0,0,0,0.18)`
+                                    : "none",
                                 }}
                                 title={`${fmt(b.start_minutes)}–${fmt(b.end_minutes)} (${b.duration}m) ${
                                   hasCover ? "→ " + b.cover : b.status
                                 }`}
                               >
-                                {hasCover && bw >= 22 && (
-                                  <span className="text-[9px] font-bold text-white truncate px-0.5 drop-shadow">
+                                {hasCover && bw >= 18 && (
+                                  <span className="text-[10px] font-extrabold text-white truncate px-1 leading-none drop-shadow-[0_1px_1px_rgba(0,0,0,0.45)] tracking-tight">
                                     {initials(b.cover)}
                                   </span>
                                 )}
@@ -317,13 +322,17 @@ export default function CoverageGantt({ schedule }) {
               {/* Legend */}
               <div className="mt-3 flex flex-wrap gap-x-4 gap-y-1.5 text-[10px] text-muted-foreground">
                 {[
-                  ["Covered", STATUS_COLOR.covered],
+                  ["Covered (cover's colour)", "#6366f1"],
                   ["Self-managed", STATUS_COLOR["self-managed"]],
                   ["Pull from floor", STATUS_COLOR.unassigned],
                   ["Gap below min", "#fecaca"],
                 ].map(([l, c]) => (
                   <span key={l} className="inline-flex items-center gap-1.5">
-                    <span className="w-2.5 h-2.5 rounded-sm" style={{ background: c }} /> {l}
+                    <span
+                      className="w-2.5 h-2.5 rounded-sm ring-[2px] ring-white shadow-sm"
+                      style={{ background: c, boxShadow: `0 0 0 1.5px ${c}` }}
+                    />{" "}
+                    {l}
                   </span>
                 ))}
               </div>

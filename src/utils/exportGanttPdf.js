@@ -142,13 +142,26 @@ export async function exportGanttPdf(schedule, coverage) {
         const bw = Math.max(3, X(b.end_minutes) - X(b.start_minutes));
         const hasCover = b.cover && b.cover.trim();
         const rgb = hasCover ? hexToRgb(memberColor(b.cover)) : (STATUS_RGB[b.status] || [148, 163, 184]);
-        doc.setFillColor(...rgb);
-        doc.roundedRect(bx, y + 2, bw, rowH - 4, 1.5, 1.5, "F");
-        if (hasCover && bw >= 26) {
+        if (hasCover) {
+          // outer color border + white ring + vivid fill so the cover's
+          // individual colour stands out on the printed Gantt.
+          doc.setFillColor(...rgb);
+          doc.roundedRect(bx, y + 2, bw, rowH - 4, 1.5, 1.5, "F");
+          doc.setDrawColor(255, 255, 255);
+          doc.setLineWidth(1.4);
+          doc.roundedRect(bx + 0.7, y + 2.7, bw - 1.4, rowH - 4 - 1.4, 1, 1, "S");
+          doc.setDrawColor(...rgb);
+          doc.setLineWidth(0.5);
+          doc.roundedRect(bx, y + 2, bw, rowH - 4, 1.5, 1.5, "S");
+        } else {
+          doc.setFillColor(...rgb);
+          doc.roundedRect(bx, y + 2, bw, rowH - 4, 1.5, 1.5, "F");
+        }
+        if (hasCover && bw >= 18) {
           doc.setTextColor(255, 255, 255);
           doc.setFont("helvetica", "bold");
-          doc.setFontSize(6.5);
-          doc.text(initials(b.cover), bx + bw / 2, y + rowH / 2 + 1, { align: "center" });
+          doc.setFontSize(7.5);
+          doc.text(initials(b.cover), bx + bw / 2, y + rowH / 2 + 1.2, { align: "center" });
         }
       });
       y += rowH;

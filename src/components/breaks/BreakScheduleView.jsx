@@ -202,6 +202,13 @@ export default function BreakScheduleView({ schedule, onSaved }) {
 
   const needsCover = breaks.filter((b) => b.status === "unassigned" || b.status === "flagged");
 
+  // Sort rows by each person's first break start time for readability.
+  const sortedShifts = [...shifts].sort((a, b) => {
+    const aStart = (breaksByName[a.name] || []).reduce((m, x) => Math.min(m, x.start_minutes ?? Infinity), Infinity);
+    const bStart = (breaksByName[b.name] || []).reduce((m, x) => Math.min(m, x.start_minutes ?? Infinity), Infinity);
+    return aStart - bStart;
+  });
+
   return (
     <div className="rounded-2xl border border-border bg-card shadow-sm overflow-hidden">
       <div className="flex flex-wrap items-center gap-2 px-5 py-4 border-b border-border">
@@ -273,7 +280,7 @@ export default function BreakScheduleView({ schedule, onSaved }) {
             </tr>
           </thead>
           <tbody>
-            {shifts.map((s, idx) => {
+            {sortedShifts.map((s, idx) => {
               const bs = breaksByName[s.name] || [];
               const pm = s.start_minutes >= 720; // afternoon/evening shift → peach highlight
               const rowBg = pm ? PEACH : "#ffffff";

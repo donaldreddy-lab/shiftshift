@@ -1,5 +1,6 @@
 import React, { useMemo, useState } from "react";
-import { ChevronDown, Clock, Users, AlertTriangle } from "lucide-react";
+import { ChevronDown, Clock, Users, AlertTriangle, FileDown, Loader2 } from "lucide-react";
+import { exportGanttPdf } from "@/utils/exportGanttPdf";
 
 // Mirrors the backend coverage config so the chart reflects the same rules.
 const COVERAGE = {
@@ -50,6 +51,16 @@ function areaPresent(shifts, breaks, area, t) {
 
 export default function CoverageGantt({ schedule }) {
   const [open, setOpen] = useState(false);
+  const [exporting, setExporting] = useState(false);
+
+  const handleExport = async () => {
+    setExporting(true);
+    try {
+      await exportGanttPdf(schedule);
+    } finally {
+      setExporting(false);
+    }
+  };
 
   const { shifts, breaks, t0, t1, hours, pxPerMin, timelineW, byArea } = useMemo(() => {
     const shifts = schedule.shifts || [];
@@ -79,15 +90,19 @@ export default function CoverageGantt({ schedule }) {
   const coverageData = useMemo(() => {
     const step = 15;
     return coverageAreas.map((area) => {
+      const areas = new Set([area, EQUIV[area]]);
       const min = COVERAGE[area].min;
       const pts = [];
       let maxC = min;
       for (let t = t0; t < t1; t += step) {
         const c = areaPresent(shifts, breaks, area, t);
-        pts.push({ t, c });
+        // only count as a gap when the area is actually rostered (open) at t —
+        // a closed area (no one on shift) is not a coverage gap.
+        const rostered = shifts.some((s) => areas.has(s.area) && s.start_minutes <= t && s.end_minutes > t);
+        pts.push({ t, c, rostered });
         if (c > maxC) maxC = c;
       }
-      const gaps = pts.filter((p) => p.c < min);
+      const gaps = pts.filter((p) => p.c < min && p.rostered);
       return { area, min, pts, gaps, maxC };
     });
   }, [coverageAreas, shifts, breaks, t0, t1]);
@@ -98,19 +113,35 @@ export default function CoverageGantt({ schedule }) {
 
   return (
     <div className="rounded-2xl border border-border bg-card shadow-sm overflow-hidden">
-      <button
-        onClick={() => setOpen((o) => !o)}
-        className="w-full flex items-center gap-2 px-4 md:px-5 py-4 text-left"
-      >
-        <div className="w-9 h-9 rounded-xl bg-primary/10 flex items-center justify-center shrink-0">
-          <Clock className="w-4 h-4 text-primary" />
-        </div>
-        <div className="mr-auto">
-          <h2 className="font-heading font-semibold text-base">Coverage Gantt</h2>
-          <p className="text-xs text-muted-foreground">Shift spans, breaks and on-floor coverage over the day.</p>
-        </div>
-        <ChevronDown className={`w-4 h-4 text-muted-foreground transition-transform ${open ? "rotate-180" : ""}`} />
-      </button>
+      <div className="w-full flex items-center gap-2 px-4 md:px-5 py-4">
+        <button
+          onClick={() => setOpen((o) => !o)}
+          className="flex items-center gap-2 text-left flex-1 min-w-0"
+        >
+          <div className="w-9 h-9 rounded-xl bg-primary/10 flex items-center justify-center shrink-0">
+            <Clock className="w-4 h-4 text-primary" />
+          </div>
+          <div className="mr-auto min-w-0">
+            <h2 className="font-heading font-semibold text-base">Coverage Gantt</h2>
+            <p className="text-xs text-muted-foreground">Shift spans, breaks and on-floor coverage over the day.</p>
+          </div>
+        </button>
+        <button
+          onClick={handleExport}
+          disabled={exporting}
+          className="inline-flex items-center gap-1.5 px-2.5 min-h-[36px] rounded-lg text-xs font-medium bg-muted text-muted-foreground hover:bg-muted/70 disabled:opacity-50 mr-1"
+        >
+          {exporting ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <FileDown className="w-3.5 h-3.5" />}
+          PDF
+        </button>
+        <button
+          onClick={() => setOpen((o) => !o)}
+          className="w-9 h-9 flex items-center justify-center rounded-lg hover:bg-muted/70"
+          aria-label="Toggle gantt"
+        >
+          <ChevronDown className={`w-4 h-4 text-muted-foreground transition-transform ${open ? "rotate-180" : ""}`} />
+        </button>
+      </div>
 
       {open && (
         <div className="border-t border-border">
@@ -249,7 +280,7 @@ export default function CoverageGantt({ schedule }) {
                         </svg>
                         {gaps.length > 0 && (
                           <div className="absolute top-0 right-0 flex items-center gap-1 text-[9px] text-red-600 font-medium">
-                            <AlertTriangle className="w-3 h-3" /> {gaps.length} gap{gaps.length > 1 ? "s" : ""}
+                            <AlertTriangle className="w-3 h-3" /> {gaps.length * step}m below min
                           </div>
                         )}
                       </div>

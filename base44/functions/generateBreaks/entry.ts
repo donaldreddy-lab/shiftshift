@@ -9,8 +9,20 @@ const AREAS = [
 ];
 const REQUIRES_18 = new Set(["Nursery Greeter", "People Greeter"]);
 const REQUIRES_TRAINING = new Set(["Info Desk", "Hire Shop", "Front End Support", "Cafe"]);
-// Areas that must always have at least one person present — breaks need a cover
-const ALWAYS_COVERED = new Set(["People Greeter", "Nursery Register", "Nursery Greeter", "Toolshop Register", "Register", "Info Desk", "Cafe", "Hire Shop"]);
+// Minimum coverage windows: each area must keep at least `min` person present
+// during its window. Where 2+ staff overlap in the window, the extra person is
+// spare capacity — use them to cover breaks (same area or pulled elsewhere)
+// without dropping below the minimum.
+const COVERAGE = {
+  "People Greeter": { start: 0, end: 1440, min: 1 },
+  "Register": { start: 9 * 60, end: 20 * 60, min: 1 },
+  "Toolshop Register": { start: 0, end: 1440, min: 1 },
+  "Nursery Register": { start: 9 * 60, end: 17 * 60, min: 1 },
+  "Nursery Greeter": { start: 9 * 60, end: 17 * 60, min: 1 },
+  "Info Desk": { start: 0, end: 1440, min: 1 },
+  "Front End Support": { start: 0, end: 1440, min: 1 },
+  "Cafe": { start: 7 * 60 + 45, end: 16 * 60 + 45, min: 1 }
+};
 // Areas that manage their own break cover internally — no cover assignment needed,
 // and their staff are NOT pulled to cover other areas' breaks.
 const SELF_MANAGED = new Set(["Online Fulfilment", "Click and Collect", "Reception"]);
@@ -118,7 +130,7 @@ function maxConcurrent(placedBreaks, start, end, includeSelf) {
 // Place one shift's breaks into the global list, keeping at most 2 concurrent
 // breaks (hard for non-self-managed areas, soft for self-managed) and a 2-hour
 // gap between one person's own breaks.
-function placeShiftBreaks(shift, placedBreaks, hard, lateThreshold, deadline) {
+function placeShiftBreaks(shift, placedBreaks, allShifts, hard, lateThreshold, deadline) {
   const durations = getBreakDurations(shift.shift_minutes);
   const winStart = shift.start_minutes + 90;
   const winEndRaw = shift.end_minutes - 60;
@@ -133,14 +145,14 @@ function placeShiftBreaks(shift, placedBreaks, hard, lateThreshold, deadline) {
     const lastResortLatest = i === 0 ? Math.min(winEnd - d, firstBreakDeadline) : winEnd - d;
     const ideal = winStart + Math.round((i + 1) * (winEnd - winStart - d) / (durations.length + 1));
     let best = null;
-    const trySlot = (s, allowHardBreach) => {
+    const trySlot = (s, allowHardBreach, requireCoverage) => {
       const e = s + d;
       if (e > winEnd + 0.001) return null;
       // never overlap this person's own breaks
       const ownOverlap = placedBreaks.some((p) => p.team_member === shift.name && p.start_minutes < e && s < p.end_minutes);
       if (ownOverlap) return null;
-      const mcHard = maxConcurrent(placedBreaks, s, e, false);
-      if (!allowHardBreach && hard && mcHard > 2) return null;
+      // Concurrency cap (≤2 non-self-managed breaks at once) is a soft penalty
+      // via mcAll in the score, not a hard reject — area coverage takes priority.
       // Late window: after lateThreshold we aim for one at a time. When the
       // late window is over-subscribed this can't always be honoured, so it's
       // a heavy soft penalty (not a hard reject) — breaks spread out and any
@@ -148,30 +160,44 @@ function placeShiftBreaks(shift, placedBreaks, hard, lateThreshold, deadline) {
       const mcLate = lateThreshold != null && e > lateThreshold
         ? maxConcurrentLate(placedBreaks, s, e, lateThreshold, false) : 0;
       const mcAll = maxConcurrent(placedBreaks, s, e, true);
-      const score = mcLate * mcLate * 100000 + mcAll * 10000 + Math.abs(s - ideal);
+      // For coverage areas, a break may only land when another person keeps the
+      // area at its minimum during the break (use the overlap as natural cover).
+      // Hard in normal passes; softened to a penalty only as a last resort.
+      let coverGap = 0;
+      const cov = COVERAGE[shift.area];
+      if (cov) {
+        const ws = Math.max(s, cov.start), we = Math.min(e, cov.end);
+        if (ws < we) {
+          const remaining = areaCoverageCount(allShifts, placedBreaks, shift.area, s, e, shift.name);
+          if (remaining < cov.min) {
+            if (requireCoverage) return null;
+            coverGap = (cov.min - remaining) * 50000;
+          }
+        }
+      }
+      const score = mcLate * mcLate * 100000 + mcAll * 10000 + coverGap + Math.abs(s - ideal);
       return { start: s, end: e, duration: d, score };
     };
-    // Pass 1: respect the 2-hour gap between this person's breaks.
+    // Pass 1: respect the 2-hour gap and coverage minimum (hard).
     if (gapEarliest <= latest) {
       for (let s = snapUp15(gapEarliest); s <= latest; s += 15) {
-        const cand = trySlot(s, false);
+        const cand = trySlot(s, false, true);
         if (cand && (!best || cand.score < best.score)) best = cand;
       }
     }
-    // Pass 2: relax the 2-hour gap (deadline pressure) — still no own-overlap.
+    // Pass 2: relax the 2-hour gap — coverage minimum still hard.
     if (!best && winStart <= latest) {
       for (let s = snapUp15(winStart); s <= latest; s += 15) {
-        const cand = trySlot(s, false);
+        const cand = trySlot(s, false, true);
         if (cand && (!best || cand.score < best.score)) best = cand;
       }
     }
-    // Last resort: the window is genuinely over-subscribed — scan the whole
-    // window allowing the 2-overlap cap to be breached, scoring by best-effort
-    // spread so overflow breaks distribute instead of piling at one slot.
-    // Own-overlap and the after-hours deadline remain hard.
+    // Last resort: the window is genuinely over-subscribed — allow the
+    // 2-overlap cap to be breached AND relax the coverage minimum to a penalty,
+    // so overflow breaks still place rather than failing entirely.
     if (!best && winStart <= lastResortLatest) {
       for (let s = snapUp15(winStart); s <= lastResortLatest; s += 15) {
-        const cand = trySlot(s, true);
+        const cand = trySlot(s, true, false);
         if (cand && (!best || cand.score < best.score)) best = cand;
       }
     }
@@ -197,6 +223,21 @@ function placeShiftBreaks(shift, placedBreaks, hard, lateThreshold, deadline) {
 
 function overlaps(aStart, aEnd, bStart, bEnd) {
   return aStart < bEnd && bStart < aEnd;
+}
+
+// Count staff in `area` working the whole [s,e] window and not on break during
+// it. `excludeName` is not counted (the person being pulled / going on break).
+function areaCoverageCount(allShifts, placedBreaks, area, s, e, excludeName) {
+  let count = 0;
+  for (const sh of allShifts) {
+    if (sh.name === excludeName) continue;
+    if (sh.area !== area) continue;
+    if (sh.start_minutes > s || sh.end_minutes < e) continue;
+    const onBreak = placedBreaks.some((o) => o.team_member === sh.name && overlaps(s, e, o.start_minutes, o.end_minutes));
+    if (onBreak) continue;
+    count++;
+  }
+  return count;
 }
 
 export default async function(req) {
@@ -332,8 +373,8 @@ export default async function(req) {
     const deadline = isWeekend ? 18 * 60 + 15 : 20 * 60 + 15;
     const placedBreaks = [];
     const orderedShifts = shifts.slice().sort((a, b) => a.start_minutes - b.start_minutes);
-    for (const s of orderedShifts) if (!SELF_MANAGED.has(s.area)) placeShiftBreaks(s, placedBreaks, true, lateThreshold, deadline);
-    for (const s of orderedShifts) if (SELF_MANAGED.has(s.area)) placeShiftBreaks(s, placedBreaks, false, lateThreshold, deadline);
+    for (const s of orderedShifts) if (!SELF_MANAGED.has(s.area)) placeShiftBreaks(s, placedBreaks, shifts, true, lateThreshold, deadline);
+    for (const s of orderedShifts) if (SELF_MANAGED.has(s.area)) placeShiftBreaks(s, placedBreaks, shifts, false, lateThreshold, deadline);
 
     const allBreaks = placedBreaks.map((p) => ({
       team_member: p.team_member,
@@ -378,11 +419,20 @@ export default async function(req) {
         // must not already be covering another break at this time
         const alreadyCovering = allBreaks.some(o => o.cover === shift.name && overlaps(brk.start_minutes, brk.end_minutes, o.start_minutes, o.end_minutes));
         if (alreadyCovering) continue;
-        // don't pull someone out of an always-covered area if they're the only
-        // person staffing it during this break (would leave that area empty)
-        if (ALWAYS_COVERED.has(shift.area)) {
-          const othersInArea = shifts.filter(s => s.name !== shift.name && s.area === shift.area && s.start_minutes <= brk.start_minutes && s.end_minutes >= brk.end_minutes && !allBreaks.some(o => o.team_member === s.name && overlaps(brk.start_minutes, brk.end_minutes, o.start_minutes, o.end_minutes)));
-          if (othersInArea.length === 0) continue;
+        // Coverage check: a same-area candidate stays put (they ARE the cover),
+        // so the area just needs its minimum once the break person leaves. A
+        // cross-area candidate leaves their home area, so don't drop it below
+        // its minimum there.
+        const sameArea = shift.area === brk.area;
+        const covArea = sameArea ? brk.area : shift.area;
+        const cov = COVERAGE[covArea];
+        if (cov) {
+          const ws = Math.max(brk.start_minutes, cov.start), we = Math.min(brk.end_minutes, cov.end);
+          if (ws < we) {
+            const excludeName = sameArea ? brk.team_member : shift.name;
+            const remaining = areaCoverageCount(shifts, allBreaks, covArea, brk.start_minutes, brk.end_minutes, excludeName);
+            if (remaining < cov.min) continue;
+          }
         }
         // qualification checks
         const coverMember = byName[normName(shift.name)];
@@ -391,14 +441,19 @@ export default async function(req) {
           if (REQUIRES_TRAINING.has(brk.area) && !(coverMember.trained_areas || []).includes(brk.area)) continue;
         }
         const trained = coverMember ? (coverMember.trained_areas || []).includes(brk.area) : false;
-        candidates.push({ shift, member: coverMember, trained });
+        const covHome = COVERAGE[shift.area];
+        const homeCount = areaCoverageCount(shifts, allBreaks, shift.area, brk.start_minutes, brk.end_minutes, null);
+        const spare = sameArea ? homeCount > 1 : (!covHome || homeCount > covHome.min);
+        candidates.push({ shift, member: coverMember, trained, sameArea, spare });
       }
       if (candidates.length > 0) {
-        // Concentrate covers onto 1–2 dedicated people for the day: prefer a
-        // trained candidate, then the candidate already covering the most breaks
-        // (so the same floater keeps covering), as long as they're free.
+        // Prefer a same-area overlap (natural cover), then a trained candidate,
+        // then anyone spare in their own area, then concentrate on the person
+        // already covering the most breaks.
         candidates.sort((a, b) => {
+          if (a.sameArea !== b.sameArea) return a.sameArea ? -1 : 1;
           if (a.trained !== b.trained) return a.trained ? -1 : 1;
+          if (a.spare !== b.spare) return a.spare ? -1 : 1;
           const aCount = allBreaks.filter(o => o.cover === a.shift.name).length;
           const bCount = allBreaks.filter(o => o.cover === b.shift.name).length;
           return bCount - aCount;

@@ -26,6 +26,16 @@ const COVERAGE = {
 // Areas that manage their own break cover internally — no cover assignment needed,
 // and their staff are NOT pulled to cover other areas' breaks.
 const SELF_MANAGED = new Set(["Online Fulfilment", "Click and Collect", "Reception"]);
+// Info Desk and Front End Support are effectively the same role — staff from
+// either can cover the other, and each counts toward the other's coverage.
+const EQUIV = {
+  "Info Desk": "Front End Support",
+  "Front End Support": "Info Desk"
+};
+// Pool areas: self-managed (own breaks need no cover) but their staff CAN be
+// pulled to cover other areas when 3+ are rostered in that area during the
+// break, up to 2 covers/day each.
+const POOL_AREAS = new Set(["Online Fulfilment", "Click and Collect"]);
 
 function normalizeArea(raw) {
   if (!raw) return "";
@@ -228,10 +238,13 @@ function overlaps(aStart, aEnd, bStart, bEnd) {
 // Count staff in `area` working the whole [s,e] window and not on break during
 // it. `excludeName` is not counted (the person being pulled / going on break).
 function areaCoverageCount(allShifts, placedBreaks, area, s, e, excludeName) {
+  // Equivalent roles (Info Desk ↔ Front End Support) count toward each other's
+  // coverage, so a break in one can be covered by presence in the other.
+  const areas = new Set([area, EQUIV[area]]);
   let count = 0;
   for (const sh of allShifts) {
     if (sh.name === excludeName) continue;
-    if (sh.area !== area) continue;
+    if (!areas.has(sh.area)) continue;
     if (sh.start_minutes > s || sh.end_minutes < e) continue;
     const onBreak = placedBreaks.some((o) => o.team_member === sh.name && overlaps(s, e, o.start_minutes, o.end_minutes));
     if (onBreak) continue;
@@ -408,9 +421,17 @@ export default async function(req) {
       const candidates = [];
       for (const shift of shifts) {
         if (shift.name === brk.team_member) continue;
-        // self-managed areas (Reception, Fulfilment, Click & Collect) cannot
-        // be pulled to cover other areas' breaks — they manage their own.
-        if (SELF_MANAGED.has(shift.area)) continue;
+        // Reception staff manage their own area only — never pulled to cover.
+        if (shift.area === "Reception") continue;
+        // Online Fulfilment / Click & Collect staff can be pulled to cover
+        // other areas only when 3+ from that area are rostered across the
+        // break window, and each covers at most 2 breaks/day.
+        if (POOL_AREAS.has(shift.area)) {
+          const areaStaff = shifts.filter(sh => sh.area === shift.area && sh.start_minutes <= brk.start_minutes && sh.end_minutes >= brk.end_minutes);
+          if (areaStaff.length < 3) continue;
+          const coverCount = allBreaks.filter(o => o.cover === shift.name).length;
+          if (coverCount >= 2) continue;
+        }
         // must be working for the whole break
         if (shift.start_minutes > brk.start_minutes || shift.end_minutes < brk.end_minutes) continue;
         // must not be on their own break at this time
@@ -419,11 +440,13 @@ export default async function(req) {
         // must not already be covering another break at this time
         const alreadyCovering = allBreaks.some(o => o.cover === shift.name && overlaps(brk.start_minutes, brk.end_minutes, o.start_minutes, o.end_minutes));
         if (alreadyCovering) continue;
+        // Info Desk & Front End Support are the same role — a candidate from
+        // either counts as "same-area" (natural cover) for the other.
+        const sameArea = shift.area === brk.area || EQUIV[shift.area] === brk.area;
         // Coverage check: a same-area candidate stays put (they ARE the cover),
         // so the area just needs its minimum once the break person leaves. A
         // cross-area candidate leaves their home area, so don't drop it below
         // its minimum there.
-        const sameArea = shift.area === brk.area;
         const covArea = sameArea ? brk.area : shift.area;
         const cov = COVERAGE[covArea];
         if (cov) {
@@ -438,7 +461,9 @@ export default async function(req) {
         const coverMember = byName[normName(shift.name)];
         if (coverMember) {
           if (REQUIRES_18.has(brk.area) && !coverMember.is_18_plus) continue;
-          if (REQUIRES_TRAINING.has(brk.area) && !(coverMember.trained_areas || []).includes(brk.area)) continue;
+          // Info Desk / Front End Support are interchangeable — skip the training
+          // check when covering the equivalent role.
+          if (REQUIRES_TRAINING.has(brk.area) && !sameArea && !(coverMember.trained_areas || []).includes(brk.area)) continue;
         }
         const trained = coverMember ? (coverMember.trained_areas || []).includes(brk.area) : false;
         const covHome = COVERAGE[shift.area];

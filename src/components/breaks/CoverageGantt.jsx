@@ -188,7 +188,10 @@ export default function CoverageGantt({ schedule }) {
                     return (
                       <div key={s.name} className="relative flex items-center" style={{ height: rowH }}>
                         <div style={{ width: labelW }} className="pr-2 flex items-center gap-1.5">
-                          <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ background: memberColor(s.name) }} />
+                          <span
+                            className="w-2 h-2 rounded-full shrink-0 ring-1 ring-black/10"
+                            style={{ background: memberColor(s.name), opacity: 0.45 }}
+                          />
                           <span className="truncate text-xs font-medium">{s.name}</span>
                         </div>
                         <div className="relative" style={{ width: timelineW, height: rowH }}>
@@ -212,21 +215,26 @@ export default function CoverageGantt({ schedule }) {
                             return (
                               <div
                                 key={i}
-                                className="absolute rounded-sm flex items-center justify-center"
+                                className={`absolute rounded-sm flex items-center justify-center ${
+                                  hasCover ? "ring-2 ring-white shadow-sm" : ""
+                                }`}
                                 style={{
                                   left: X(b.start_minutes),
                                   width: bw,
                                   top: 3,
                                   height: rowH - 6,
                                   background: color,
-                                  opacity: 0.92,
+                                  opacity: hasCover ? 1 : 0.6,
+                                  zIndex: hasCover ? 2 : 1,
                                 }}
                                 title={`${fmt(b.start_minutes)}–${fmt(b.end_minutes)} (${b.duration}m) ${
                                   hasCover ? "→ " + b.cover : b.status
                                 }`}
                               >
-                                {hasCover && bw >= 26 && (
-                                  <span className="text-[8px] font-bold text-white truncate px-0.5">{initials(b.cover)}</span>
+                                {hasCover && bw >= 22 && (
+                                  <span className="text-[9px] font-bold text-white truncate px-0.5 drop-shadow">
+                                    {initials(b.cover)}
+                                  </span>
                                 )}
                               </div>
                             );

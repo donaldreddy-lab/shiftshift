@@ -5,7 +5,7 @@ function fmt(min) {
   return String(h).padStart(2, "0") + ":" + String(mm).padStart(2, "0");
 }
 
-import { DEFAULT_COVERAGE, EQUIV, SELF_MANAGED } from "./coverageDefaults";
+import { EQUIV, SELF_MANAGED, resolveCoverage } from "./coverageDefaults";
 
 const STATUS_RGB = {
   covered: [16, 185, 129],
@@ -30,7 +30,8 @@ function areaPresent(shifts, breaks, area, t) {
 
 export async function exportGanttPdf(schedule, coverage) {
   const { jsPDF } = await import("jspdf");
-  coverage = coverage || DEFAULT_COVERAGE;
+  const dow = schedule.schedule_date ? new Date(schedule.schedule_date + "T00:00:00").getDay() : new Date().getDay();
+  coverage = coverage || resolveCoverage([], dow);
   const shifts = schedule.shifts || [];
   const breaks = schedule.breaks || [];
   if (!shifts.length) return;

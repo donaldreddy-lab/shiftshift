@@ -2,7 +2,7 @@ import React, { useMemo, useState, useEffect } from "react";
 import { ChevronDown, Clock, Users, AlertTriangle, FileDown, Loader2 } from "lucide-react";
 import { base44 } from "@/api/base44Client";
 import { exportGanttPdf } from "@/utils/exportGanttPdf";
-import { DEFAULT_COVERAGE, EQUIV, SELF_MANAGED, resolveCoverage } from "@/utils/coverageDefaults";
+import { EQUIV, SELF_MANAGED, resolveCoverage } from "@/utils/coverageDefaults";
 
 const STATUS_COLOR = {
   covered: "#10b981",
@@ -37,7 +37,7 @@ function areaPresent(shifts, breaks, area, t) {
 export default function CoverageGantt({ schedule }) {
   const [open, setOpen] = useState(false);
   const [exporting, setExporting] = useState(false);
-  const [coverage, setCoverage] = useState(DEFAULT_COVERAGE);
+  const [coverage, setCoverage] = useState(() => resolveCoverage([], new Date().getDay()));
 
   useEffect(() => {
     let alive = true;

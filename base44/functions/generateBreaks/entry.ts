@@ -127,7 +127,10 @@ function placeShiftBreaks(shift, placedBreaks, hard, lateThreshold, deadline) {
   for (let i = 0; i < durations.length; i++) {
     const d = durations[i];
     const gapEarliest = Math.max(winStart, prevEnd + (i === 0 ? 0 : 120));
-    const latest = winEnd - d;
+    // First break must start no more than 3 hours into the shift.
+    const firstBreakDeadline = shift.start_minutes + 180;
+    const latest = i === 0 ? Math.min(winEnd - d, firstBreakDeadline) : winEnd - d;
+    const lastResortLatest = i === 0 ? Math.min(winEnd - d, firstBreakDeadline) : winEnd - d;
     const ideal = winStart + Math.round((i + 1) * (winEnd - winStart - d) / (durations.length + 1));
     let best = null;
     const trySlot = (s, allowHardBreach) => {
@@ -166,15 +169,16 @@ function placeShiftBreaks(shift, placedBreaks, hard, lateThreshold, deadline) {
     // window allowing the 2-overlap cap to be breached, scoring by best-effort
     // spread so overflow breaks distribute instead of piling at one slot.
     // Own-overlap and the after-hours deadline remain hard.
-    if (!best && winStart <= winEnd - d) {
-      for (let s = snapUp15(winStart); s <= winEnd - d; s += 15) {
+    if (!best && winStart <= lastResortLatest) {
+      for (let s = snapUp15(winStart); s <= lastResortLatest; s += 15) {
         const cand = trySlot(s, true);
         if (cand && (!best || cand.score < best.score)) best = cand;
       }
     }
     // Absolute fallback: clamp to the after-hours deadline (own-overlap only).
     if (!best) {
-      let s = winStart <= winEnd - d ? winEnd - d : snapUp15(gapEarliest);
+      let s = winStart <= lastResortLatest ? lastResortLatest : snapUp15(gapEarliest);
+      if (i === 0 && s > firstBreakDeadline) s = firstBreakDeadline;
       if (deadline != null && s + d > deadline) s = Math.max(shift.start_minutes + 120, deadline - d);
       best = { start: s, end: s + d, duration: d };
     }

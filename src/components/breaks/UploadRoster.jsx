@@ -12,7 +12,7 @@ export default function UploadRoster({ onGenerated }) {
   const [error, setError] = useState("");
 
   const handleGenerate = async () => {
-    if (!file) { setError("Please choose an Excel spreadsheet first."); return; }
+    if (!file) { setError("Please choose a roster file first."); return; }
     setError("");
     setLoading(true);
     try {
@@ -37,13 +37,13 @@ export default function UploadRoster({ onGenerated }) {
         </div>
         <div>
           <h2 className="font-heading font-semibold text-base">Upload daily location roster</h2>
-          <p className="text-sm text-muted-foreground">Upload your team's Excel spreadsheet to generate the breaks list.</p>
+          <p className="text-sm text-muted-foreground">Upload your team's Excel spreadsheet, or a clear photo / PDF of the roster, to generate the breaks list.</p>
         </div>
       </div>
 
       <div className="grid gap-4 sm:grid-cols-[1fr_auto]">
         <div>
-          <Label className="text-xs text-muted-foreground">Roster file (Excel / CSV)</Label>
+          <Label className="text-xs text-muted-foreground">Roster file (Excel / CSV / image)</Label>
           <label className="mt-1.5 flex items-center gap-3 rounded-xl border border-dashed border-border bg-muted/30 px-4 py-3 cursor-pointer hover:border-primary/50 hover:bg-primary/5 transition-colors">
             <Upload className="w-4 h-4 text-muted-foreground" />
             <span className="text-sm text-muted-foreground truncate">
@@ -51,7 +51,7 @@ export default function UploadRoster({ onGenerated }) {
             </span>
             <input
               type="file"
-              accept=".xlsx,.xls,.csv"
+              accept=".xlsx,.xls,.csv,image/*,.pdf"
               className="hidden"
               onChange={(e) => setFile(e.target.files?.[0] || null)}
             />

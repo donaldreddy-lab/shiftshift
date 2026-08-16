@@ -269,52 +269,85 @@ export default async function(req) {
     } else {
       if (!fileUrl) return Response.json({ error: 'Either file_url or a roster array is required' }, { status: 400 });
 
-      // Fetch and parse the roster file directly (supports .xlsx, .xls, .csv)
-      const fileRes = await fetch(fileUrl);
-      if (!fileRes.ok) {
-        return Response.json({ error: 'Could not download the uploaded file.' }, { status: 400 });
-      }
-      const ab = await fileRes.arrayBuffer();
-      const workbook = XLSX.read(ab, { type: 'array' });
-      const sheetName = workbook.SheetNames[0];
-      const sheet = workbook.Sheets[sheetName];
-      const rows = XLSX.utils.sheet_to_json(sheet, { defval: '' });
-
-      if (!rows.length) {
-        return Response.json({ error: 'No rows could be read from the file. Check the spreadsheet has headers like Name, Start, End and Area.' }, { status: 400 });
-      }
-
-      // Map various column header formats to our fields
-      const findKey = (row, candidates) => {
-        const keys = Object.keys(row);
-        for (const c of candidates) {
-          const cl = c.toLowerCase();
-          const hit = keys.find((k) => k.toLowerCase().trim() === cl);
-          if (hit) return hit;
+      const isSpreadsheet = /\.(xlsx|xls|csv|tsv)(\?|$)/i.test(fileUrl);
+      if (!isSpreadsheet) {
+        // Image / PDF roster — extract with a vision LLM. Real extraction
+        // only (no test/placeholder data); error if nothing could be read.
+        const extracted = await base44.asServiceRole.integrations.Core.InvokeLLM({
+          prompt: "Extract the daily staff roster from this image or PDF. For every row return the staff member's name, shift start time, shift end time, and area/department exactly as printed (keep AM/PM if shown). Set area to an empty string if it is not shown. Return only the roster array.",
+          file_urls: [fileUrl],
+          response_json_schema: {
+            type: "object",
+            properties: {
+              roster: {
+                type: "array",
+                items: {
+                  type: "object",
+                  properties: {
+                    name: { type: "string" },
+                    start_time: { type: "string" },
+                    end_time: { type: "string" },
+                    area: { type: "string" }
+                  },
+                  required: ["name", "start_time", "end_time"]
+                }
+              }
+            },
+            required: ["roster"]
+          }
+        });
+        roster = Array.isArray(extracted && extracted.roster) ? extracted.roster : [];
+        if (!roster.length) {
+          return Response.json({ error: "Couldn't read any roster rows from that image. Try a clearer photo, or upload the Excel spreadsheet instead." }, { status: 400 });
         }
-        for (const c of candidates) {
-          const cl = c.toLowerCase();
-          const hit = keys.find((k) => k.toLowerCase().includes(cl));
-          if (hit) return hit;
+      } else {
+        // Spreadsheet (.xlsx, .xls, .csv) — parse directly.
+        const fileRes = await fetch(fileUrl);
+        if (!fileRes.ok) {
+          return Response.json({ error: 'Could not download the uploaded file.' }, { status: 400 });
         }
-        return null;
-      };
-      const firstRow = rows[0];
-      const nameKey = findKey(firstRow, ['name', 'employee', 'staff', 'team member', 'full name']);
-      const startKey = findKey(firstRow, ['start', 'start time', 'in', 'shift start', 'from', 'time in']);
-      const endKey = findKey(firstRow, ['end', 'end time', 'out', 'shift end', 'to', 'time out', 'finish']);
-      const areaKey = findKey(firstRow, ['area', 'location', 'department', 'zone', 'role', 'position', 'station', 'assignment']);
+        const ab = await fileRes.arrayBuffer();
+        const workbook = XLSX.read(ab, { type: 'array' });
+        const sheetName = workbook.SheetNames[0];
+        const sheet = workbook.Sheets[sheetName];
+        const rows = XLSX.utils.sheet_to_json(sheet, { defval: '' });
 
-      if (!nameKey || !startKey || !endKey) {
-        return Response.json({ error: `Could not find the expected columns. Detected — Name: ${nameKey || 'missing'}, Start: ${startKey || 'missing'}, End: ${endKey || 'missing'}, Area: ${areaKey || 'missing'}. Make sure your spreadsheet has Name, Start time, End time (and Area) headers.` }, { status: 400 });
+        if (!rows.length) {
+          return Response.json({ error: 'No rows could be read from the file. Check the spreadsheet has headers like Name, Start, End and Area.' }, { status: 400 });
+        }
+
+        // Map various column header formats to our fields
+        const findKey = (row, candidates) => {
+          const keys = Object.keys(row);
+          for (const c of candidates) {
+            const cl = c.toLowerCase();
+            const hit = keys.find((k) => k.toLowerCase().trim() === cl);
+            if (hit) return hit;
+          }
+          for (const c of candidates) {
+            const cl = c.toLowerCase();
+            const hit = keys.find((k) => k.toLowerCase().includes(cl));
+            if (hit) return hit;
+          }
+          return null;
+        };
+        const firstRow = rows[0];
+        const nameKey = findKey(firstRow, ['name', 'employee', 'staff', 'team member', 'full name']);
+        const startKey = findKey(firstRow, ['start', 'start time', 'in', 'shift start', 'from', 'time in']);
+        const endKey = findKey(firstRow, ['end', 'end time', 'out', 'shift end', 'to', 'time out', 'finish']);
+        const areaKey = findKey(firstRow, ['area', 'location', 'department', 'zone', 'role', 'position', 'station', 'assignment']);
+
+        if (!nameKey || !startKey || !endKey) {
+          return Response.json({ error: `Could not find the expected columns. Detected — Name: ${nameKey || 'missing'}, Start: ${startKey || 'missing'}, End: ${endKey || 'missing'}, Area: ${areaKey || 'missing'}. Make sure your spreadsheet has Name, Start time, End time (and Area) headers.` }, { status: 400 });
+        }
+
+        roster = rows.map((r) => ({
+          name: r[nameKey],
+          start_time: r[startKey],
+          end_time: r[endKey],
+          area: areaKey ? r[areaKey] : ''
+        }));
       }
-
-      roster = rows.map((r) => ({
-        name: r[nameKey],
-        start_time: r[startKey],
-        end_time: r[endKey],
-        area: areaKey ? r[areaKey] : ''
-      }));
     }
 
     // Load existing team members

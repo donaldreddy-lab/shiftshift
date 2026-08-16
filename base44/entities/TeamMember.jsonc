@@ -39,6 +39,29 @@
       },
       "default": [],
       "title": "Trained Areas"
+    },
+    "employment_status": {
+      "type": "string",
+      "title": "Employment Status",
+      "enum": [
+        "Full Time",
+        "Part Time",
+        "Casual",
+        "Expert Full Time",
+        "Expert Part Time",
+        "Expert Casual"
+      ],
+      "default": ""
+    },
+    "start_date": {
+      "type": "string",
+      "format": "date",
+      "title": "Start Date"
+    },
+    "phone_number": {
+      "type": "string",
+      "title": "Phone Number",
+      "default": ""
     }
   },
   "required": [

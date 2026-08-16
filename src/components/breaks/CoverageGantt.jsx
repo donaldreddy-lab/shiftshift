@@ -93,19 +93,27 @@ export default function CoverageGantt({ schedule }) {
     const step = 15;
     return coverageAreas.map((area) => {
       const areas = new Set([area, EQUIV[area]]);
-      const min = coverage[area].min;
+      const windows = coverage[area] || [];
+      const minAt = (t) => {
+        let m = 0;
+        for (const w of windows) if (t >= w.start && t < w.end) m = Math.max(m, w.min);
+        return m;
+      };
       const pts = [];
-      let maxC = min;
+      let maxC = 1;
       for (let t = t0; t < t1; t += step) {
         const c = areaPresent(shifts, breaks, area, t);
+        const req = minAt(t + step / 2);
         // only count as a gap when the area is actually rostered (open) at t —
         // a closed area (no one on shift) is not a coverage gap.
         const rostered = shifts.some((s) => areas.has(s.area) && s.start_minutes <= t && s.end_minutes > t);
-        pts.push({ t, c, rostered });
+        pts.push({ t, c, req, rostered });
         if (c > maxC) maxC = c;
+        if (req > maxC) maxC = req;
       }
-      const gaps = pts.filter((p) => p.c < min && p.rostered);
-      return { area, min, pts, gaps, maxC };
+      const gaps = pts.filter((p) => p.c < p.req && p.rostered);
+      const maxReq = pts.reduce((mx, p) => Math.max(mx, p.req), 0);
+      return { area, pts, gaps, maxC, maxReq };
     });
   }, [coverageAreas, coverage, shifts, breaks, t0, t1]);
 
@@ -231,21 +239,28 @@ export default function CoverageGantt({ schedule }) {
                   <Users className="w-3.5 h-3.5 text-muted-foreground" />
                   On-floor coverage (dashed = minimum)
                 </div>
-                {coverageData.map(({ area, min, pts, gaps, maxC }) => {
+                {coverageData.map(({ area, pts, gaps, maxC, maxReq }) => {
                   const H = 46;
                   const topPad = 6;
                   const yFor = (c) => H - topPad - (c / Math.max(2, maxC)) * (H - topPad - 4);
                   const step = 15;
-                  const path = pts
+                  const covPath = pts
                     .map((p, i) => `${i === 0 ? "M" : "L"} ${X(p.t).toFixed(1)} ${yFor(p.c).toFixed(1)}`)
                     .join(" ");
+                  let minPath = "";
+                  pts.forEach((p, i) => {
+                    const x1 = X(p.t).toFixed(1);
+                    const x2 = X(p.t + step).toFixed(1);
+                    const y = yFor(p.req).toFixed(1);
+                    minPath += `${i === 0 ? "M" : "L"} ${x1} ${y} L ${x2} ${y} `;
+                  });
                   const lastX = X(pts[pts.length - 1].t + step);
-                  const filled = `${path} L ${lastX} ${H - topPad} L ${X(pts[0].t)} ${H - topPad} Z`;
+                  const filled = `${covPath} L ${lastX.toFixed(1)} ${(H - topPad).toFixed(1)} L ${X(pts[0].t).toFixed(1)} ${(H - topPad).toFixed(1)} Z`;
                   return (
                     <div key={area} className="relative flex items-center mb-2" style={{ height: H + 14 }}>
                       <div style={{ width: labelW }} className="pr-2">
                         <div className="text-[11px] font-medium leading-tight truncate">{area}</div>
-                        <div className="text-[9px] text-muted-foreground">min {min}</div>
+                        <div className="text-[9px] text-muted-foreground">min up to {maxReq}</div>
                       </div>
                       <div className="relative" style={{ width: timelineW, height: H }}>
                         <svg width={timelineW} height={H} className="block">
@@ -253,32 +268,24 @@ export default function CoverageGantt({ schedule }) {
                           {hours.map((h) => (
                             <line key={h} x1={X(h)} x2={X(h)} y1={0} y2={H} stroke="#f1f5f9" strokeWidth={1} />
                           ))}
-                          {/* gap regions */}
+                          {/* gap regions — below the required min for that slot */}
                           {gaps.map((g, i) => (
                             <rect
                               key={i}
                               x={X(g.t)}
-                              y={yFor(min)}
+                              y={yFor(g.req)}
                               width={X(g.t + step) - X(g.t)}
-                              height={H - topPad - yFor(min)}
+                              height={H - topPad - yFor(g.req)}
                               fill="#fecaca"
                               opacity={0.5}
                             />
                           ))}
                           {/* filled area */}
                           <path d={filled} fill="#dbeafe" opacity={0.6} />
-                          {/* min line */}
-                          <line
-                            x1={0}
-                            x2={timelineW}
-                            y1={yFor(min)}
-                            y2={yFor(min)}
-                            stroke="#ef4444"
-                            strokeWidth={1}
-                            strokeDasharray="4 3"
-                          />
+                          {/* required-min line (stepped — varies by time window) */}
+                          <path d={minPath} fill="none" stroke="#ef4444" strokeWidth={1} strokeDasharray="4 3" />
                           {/* coverage line */}
-                          <path d={path} fill="none" stroke="#2563eb" strokeWidth={1.5} />
+                          <path d={covPath} fill="none" stroke="#2563eb" strokeWidth={1.5} />
                         </svg>
                         {gaps.length > 0 && (
                           <div className="absolute top-0 right-0 flex items-center gap-1 text-[9px] text-red-600 font-medium">

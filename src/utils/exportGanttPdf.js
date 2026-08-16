@@ -167,15 +167,23 @@ export async function exportGanttPdf(schedule, coverage) {
       y = drawRulerContinuation(y);
     }
     const areas = new Set([area, EQUIV[area]]);
-    const min = coverage[area].min;
+    const windows = coverage[area] || [];
+    const minAt = (t) => {
+      let m = 0;
+      for (const w of windows) if (t >= w.start && t < w.end) m = Math.max(m, w.min);
+      return m;
+    };
     const pts = [];
-    let maxC = min;
+    let maxC = 1;
     for (let t = t0; t < t1; t += step) {
       const c = areaPresent(shifts, breaks, area, t);
+      const req = minAt(t + step / 2);
       const rostered = shifts.some((s) => areas.has(s.area) && s.start_minutes <= t && s.end_minutes > t);
-      pts.push({ t, c, rostered });
+      pts.push({ t, c, req, rostered });
       if (c > maxC) maxC = c;
+      if (req > maxC) maxC = req;
     }
+    const maxReq = pts.reduce((mx, p) => Math.max(mx, p.req), 0);
     const top = y + 4;
     const baseY = y + laneH;
     const span = laneH - 8;
@@ -186,13 +194,13 @@ export async function exportGanttPdf(schedule, coverage) {
       doc.setDrawColor(241, 245, 249);
       doc.line(X(h), top, X(h), baseY);
     }
-    // gap shading (count below min while area is rostered/open)
+    // gap shading (count below the slot's required min while area is rostered/open)
     pts.forEach((p) => {
-      if (p.c < min && p.rostered) {
+      if (p.c < p.req && p.rostered) {
         const gx = X(p.t);
         const gw = X(p.t + step) - gx;
         doc.setFillColor(254, 202, 202);
-        doc.rect(gx, yFor(min), gw, baseY - yFor(min), "F");
+        doc.rect(gx, yFor(p.req), gw, baseY - yFor(p.req), "F");
       }
     });
     // per-slot bars (on-floor count)
@@ -200,14 +208,17 @@ export async function exportGanttPdf(schedule, coverage) {
       const gx = X(p.t);
       const gw = X(p.t + step) - gx;
       const ch = baseY - yFor(p.c);
-      doc.setFillColor(...(p.c < min && p.rostered ? [254, 202, 202] : [219, 234, 254]));
+      doc.setFillColor(...(p.c < p.req && p.rostered ? [254, 202, 202] : [219, 234, 254]));
       doc.rect(gx, baseY - ch, gw, ch, "F");
     });
-    // min line (dashed)
-    const minY = yFor(min);
+    // required-min line (stepped — varies by time window)
     doc.setDrawColor(239, 68, 68);
     doc.setLineDashPattern([3, 2], 0);
-    doc.line(X(t0), minY, X(t1), minY);
+    pts.forEach((p, i) => {
+      const x1 = X(p.t), x2 = X(p.t + step), yy = yFor(p.req);
+      doc.line(x1, yy, x2, yy);
+      if (i < pts.length - 1) doc.line(x2, yy, x2, yFor(pts[i + 1].req));
+    });
     doc.setLineDashPattern([], 0);
     // coverage step line
     doc.setDrawColor(37, 99, 235);
@@ -229,10 +240,10 @@ export async function exportGanttPdf(schedule, coverage) {
     doc.setFont("helvetica", "normal");
     doc.setFontSize(7);
     doc.setTextColor(100, 116, 139);
-    doc.text(`min ${min}`, margin + 2, top + 18);
+    doc.text(`min up to ${maxReq}`, margin + 2, top + 18);
 
     // gap count badge
-    const gapCount = pts.filter((p) => p.c < min && p.rostered).length;
+    const gapCount = pts.filter((p) => p.c < p.req && p.rostered).length;
     if (gapCount > 0) {
       doc.setFont("helvetica", "bold");
       doc.setFontSize(7);

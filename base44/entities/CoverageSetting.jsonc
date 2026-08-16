@@ -8,14 +8,30 @@
     },
     "days": {
       "type": "array",
-      "title": "Per-day minimums (index 0=Sun .. 6=Sat)",
+      "title": "Per-day coverage windows (index 0=Sun .. 6=Sat)",
       "items": {
         "type": "object",
         "properties": {
-          "min": {
-            "type": "number",
-            "default": 1,
-            "title": "Minimum staff on floor"
+          "windows": {
+            "type": "array",
+            "default": [],
+            "items": {
+              "type": "object",
+              "properties": {
+                "start": {
+                  "type": "number",
+                  "title": "Start (minutes from midnight)"
+                },
+                "end": {
+                  "type": "number",
+                  "title": "End (minutes from midnight)"
+                },
+                "min": {
+                  "type": "number",
+                  "title": "Minimum staff on floor"
+                }
+              }
+            }
           }
         }
       },

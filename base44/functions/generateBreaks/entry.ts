@@ -175,13 +175,15 @@ function placeShiftBreaks(shift, placedBreaks, allShifts, hard, lateThreshold, d
       // Hard in normal passes; softened to a penalty only as a last resort.
       let coverGap = 0;
       const cov = coverage[shift.area];
-      if (cov) {
-        const ws = Math.max(s, cov.start), we = Math.min(e, cov.end);
-        if (ws < we) {
-          const remaining = areaCoverageCount(allShifts, placedBreaks, shift.area, s, e, shift.name);
-          if (remaining < cov.min) {
-            if (requireCoverage) return null;
-            coverGap = (cov.min - remaining) * 50000;
+      if (Array.isArray(cov)) {
+        for (const w of cov) {
+          const ws = Math.max(s, w.start), we = Math.min(e, w.end);
+          if (ws < we) {
+            const remaining = areaCoverageCount(allShifts, placedBreaks, shift.area, ws, we, shift.name);
+            if (remaining < w.min) {
+              if (requireCoverage) return null;
+              coverGap += (w.min - remaining) * 50000;
+            }
           }
         }
       }
@@ -382,16 +384,39 @@ export default async function(req) {
     const lateThreshold = isWeekend ? 16 * 60 : 17 * 60;
     const deadline = isWeekend ? 18 * 60 + 15 : 20 * 60 + 15;
 
-    // Resolve per-day minimum coverage from saved CoverageSetting records
-    // (falls back to COVERAGE_DEFAULT when none exist for an area/day).
+    // Resolve per-day coverage windows from saved CoverageSetting records.
+    // Each area maps to a list of {start, end, min} windows for this day-of-week
+    // (minutes from midnight). Falls back to the area's default span clamped to
+    // business hours when no settings exist. Supports the legacy single-min
+    // shape ({ days[i].min }) by promoting it to one default-span window.
+    const bhStart = isWeekend ? 420 : 360;
+    const bhEnd = isWeekend ? 1140 : 1260;
+    const defaultWindowsFor = (area) => {
+      const def = COVERAGE_DEFAULT[area];
+      if (!def) return [];
+      const start = Math.max(def.start, bhStart);
+      const end = Math.min(def.end, bhEnd);
+      if (start >= end) return [];
+      return [{ start, end, min: def.min }];
+    };
     const coverage = {};
-    for (const [area, def] of Object.entries(COVERAGE_DEFAULT)) coverage[area] = { ...def };
+    for (const area of Object.keys(COVERAGE_DEFAULT)) coverage[area] = defaultWindowsFor(area);
     try {
       const covSettings = await base44.asServiceRole.entities.CoverageSetting.list('-updated_date', 200);
       for (const area of Object.keys(COVERAGE_DEFAULT)) {
         const rec = covSettings.find((s) => s.area === area);
-        if (rec && Array.isArray(rec.days) && rec.days[dow] && typeof rec.days[dow].min === 'number') {
-          coverage[area].min = rec.days[dow].min;
+        if (rec && Array.isArray(rec.days) && rec.days[dow]) {
+          const dayEntry = rec.days[dow];
+          let windows = null;
+          if (Array.isArray(dayEntry.windows)) {
+            windows = dayEntry.windows.filter(
+              (w) => typeof w.start === 'number' && typeof w.end === 'number' && typeof w.min === 'number' && w.end > w.start
+            );
+          } else if (typeof dayEntry.min === 'number') {
+            const def = defaultWindowsFor(area)[0];
+            if (def) windows = [{ ...def, min: dayEntry.min }];
+          }
+          if (windows && windows.length) coverage[area] = windows;
         }
       }
     } catch (e) { /* defaults remain */ }
@@ -461,13 +486,17 @@ export default async function(req) {
         // its minimum there.
         const covArea = sameArea ? brk.area : shift.area;
         const cov = coverage[covArea];
-        if (cov) {
-          const ws = Math.max(brk.start_minutes, cov.start), we = Math.min(brk.end_minutes, cov.end);
-          if (ws < we) {
-            const excludeName = sameArea ? brk.team_member : shift.name;
-            const remaining = areaCoverageCount(shifts, allBreaks, covArea, brk.start_minutes, brk.end_minutes, excludeName);
-            if (remaining < cov.min) continue;
+        if (Array.isArray(cov)) {
+          let blocked = false;
+          for (const w of cov) {
+            const ws = Math.max(brk.start_minutes, w.start), we = Math.min(brk.end_minutes, w.end);
+            if (ws < we) {
+              const excludeName = sameArea ? brk.team_member : shift.name;
+              const remaining = areaCoverageCount(shifts, allBreaks, covArea, ws, we, excludeName);
+              if (remaining < w.min) { blocked = true; break; }
+            }
           }
+          if (blocked) continue;
         }
         // qualification checks
         const coverMember = byName[normName(shift.name)];
@@ -480,7 +509,13 @@ export default async function(req) {
         const trained = coverMember ? (coverMember.trained_areas || []).includes(brk.area) : false;
         const covHome = coverage[shift.area];
         const homeCount = areaCoverageCount(shifts, allBreaks, shift.area, brk.start_minutes, brk.end_minutes, null);
-        const spare = sameArea ? homeCount > 1 : (!covHome || homeCount > covHome.min);
+        let homeMin = 0;
+        if (Array.isArray(covHome)) {
+          for (const w of covHome) {
+            if (brk.start_minutes < w.end && w.start < brk.end_minutes) homeMin = Math.max(homeMin, w.min);
+          }
+        }
+        const spare = sameArea ? homeCount > 1 : homeCount > homeMin;
         candidates.push({ shift, member: coverMember, trained, sameArea, spare });
       }
       if (candidates.length > 0) {

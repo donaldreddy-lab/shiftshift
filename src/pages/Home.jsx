@@ -45,7 +45,7 @@ export default function Home() {
               </div>
             )}
 
-            <BreakScheduleView schedule={schedule} />
+            <BreakScheduleView schedule={schedule} onSaved={setSchedule} />
           </>
         )}
 

@@ -5,14 +5,15 @@ const AREAS = [
   "People Greeter", "Register", "Info Desk", "Front End Support",
   "Hire Shop", "Online Fulfilment", "Click and Collect",
   "Nursery Register", "Nursery Greeter", "BSCO", "Toolshop Register",
-  "Key Holder", "Cafe"
+  "Key Holder", "Cafe", "Reception"
 ];
 const REQUIRES_18 = new Set(["Nursery Greeter", "People Greeter"]);
 const REQUIRES_TRAINING = new Set(["Info Desk", "Hire Shop", "Front End Support", "Cafe"]);
 // Areas that must always have at least one person present — breaks need a cover
 const ALWAYS_COVERED = new Set(["People Greeter", "Nursery Register", "Nursery Greeter", "Toolshop Register", "Register", "Info Desk", "Cafe", "Hire Shop"]);
-// Areas that manage their own break cover internally — no cover assignment needed
-const SELF_MANAGED = new Set(["Online Fulfilment", "Click and Collect"]);
+// Areas that manage their own break cover internally — no cover assignment needed,
+// and their staff are NOT pulled to cover other areas' breaks.
+const SELF_MANAGED = new Set(["Online Fulfilment", "Click and Collect", "Reception"]);
 
 function normalizeArea(raw) {
   if (!raw) return "";
@@ -261,6 +262,9 @@ export default async function(req) {
       const candidates = [];
       for (const shift of shifts) {
         if (shift.name === brk.team_member) continue;
+        // self-managed areas (Reception, Fulfilment, Click & Collect) cannot
+        // be pulled to cover other areas' breaks — they manage their own.
+        if (SELF_MANAGED.has(shift.area)) continue;
         // must be working for the whole break
         if (shift.start_minutes > brk.start_minutes || shift.end_minutes < brk.end_minutes) continue;
         // must not be on their own break at this time

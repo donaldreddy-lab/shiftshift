@@ -354,20 +354,12 @@ export default async function(req) {
         brk.status = "covered";
         brk.flag_reason = "Swap with " + chosen.shift.name;
       } else {
-        // determine why
-        let reason = "No available cover — swap required";
-        const eligibleWorking = shifts.filter(s => s.name !== brk.team_member && s.start_minutes <= brk.start_minutes && s.end_minutes >= brk.end_minutes);
-        if (eligibleWorking.length === 0) {
-          reason = "Nobody else is working for the full break window — swap required";
-        } else if (REQUIRES_18.has(brk.area)) {
-          reason = "No 18+ cover available for " + brk.area + " — swap required";
-        } else if (REQUIRES_TRAINING.has(brk.area) || ALWAYS_COVERED.has(brk.area)) {
-          reason = "No cover available for " + brk.area + " — must stay staffed, swap required";
-        } else {
-          reason = "All eligible staff are on break or already covering — overlap may be needed";
-        }
-        brk.status = "flagged";
-        brk.flag_reason = reason;
+        // No automatic cover — breaks are allowed to overlap, so just leave the
+        // cover box empty for the manager to pull someone off the floor manually.
+        brk.cover = "";
+        brk.cover_area = "";
+        brk.status = "unassigned";
+        brk.flag_reason = "No automatic cover — pull someone off the floor";
       }
     }
 
@@ -377,20 +369,20 @@ export default async function(req) {
     // (kept lightweight: overlaps in cover assignment already prevented)
 
     const covered = allBreaks.filter(b => b.status === "covered").length;
-    const flagged = allBreaks.filter(b => b.status === "flagged").length;
+    const unassigned = allBreaks.filter(b => b.status === "unassigned").length;
     const selfManaged = allBreaks.filter(b => b.status === "self-managed").length;
 
     // Save schedule
     const schedule = await base44.asServiceRole.entities.BreakSchedule.create({
       schedule_date: scheduleDate,
-      status: flagged > 0 ? "flagged" : "generated",
+      status: "generated",
       shifts,
       breaks: allBreaks,
       summary: {
         total_staff: shifts.length,
         total_breaks: allBreaks.length,
         covered,
-        flagged,
+        unassigned,
         self_managed: selfManaged,
         new_members: newMembers
       }
@@ -406,7 +398,7 @@ export default async function(req) {
         total_staff: shifts.length,
         total_breaks: allBreaks.length,
         covered,
-        flagged,
+        unassigned,
         self_managed: selfManaged,
         new_members: newMembers
       }

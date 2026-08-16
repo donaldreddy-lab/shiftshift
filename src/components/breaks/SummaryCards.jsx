@@ -6,7 +6,7 @@ export default function SummaryCards({ summary }) {
     { label: "Staff on shift", value: summary.total_staff ?? 0, icon: Users, tone: "default" },
     { label: "Total breaks", value: summary.total_breaks ?? 0, icon: Coffee, tone: "default" },
     { label: "Covered", value: summary.covered ?? 0, icon: ShieldCheck, tone: "good" },
-    { label: "Flagged", value: summary.flagged ?? 0, icon: AlertTriangle, tone: "warn" },
+    { label: "Needs cover", value: summary.unassigned ?? summary.flagged ?? 0, icon: AlertTriangle, tone: "warn" },
   ];
 
   return (

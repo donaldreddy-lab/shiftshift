@@ -9,6 +9,7 @@ import { exportBreaksPdf } from "@/utils/exportBreaksPdf";
 const STATUS_OPTIONS = [
   { value: "covered", label: "Covered" },
   { value: "self-managed", label: "Self-managed" },
+  { value: "unassigned", label: "Needs cover" },
   { value: "flagged", label: "Flagged" },
 ];
 
@@ -92,6 +93,12 @@ function BreakCell({ b, editing, onUpdate }) {
         <AlertTriangle className="w-3 h-3" /> Swap needed
       </span>
     );
+  } else if (b.status === "unassigned") {
+    coverLine = (
+      <span className="text-[11px] text-slate-600 font-medium flex items-center gap-1" title={b.flag_reason}>
+        <ArrowLeftRight className="w-3 h-3" /> Pull from floor
+      </span>
+    );
   } else {
     coverLine = <span className="text-[11px] text-black/40">No cover</span>;
   }
@@ -166,7 +173,7 @@ export default function BreakScheduleView({ schedule, onSaved }) {
     }
   };
 
-  const flaggedBreaks = breaks.filter((b) => b.status === "flagged");
+  const needsCover = breaks.filter((b) => b.status === "unassigned" || b.status === "flagged");
 
   return (
     <div className="rounded-2xl border border-border bg-card shadow-sm overflow-hidden">
@@ -272,14 +279,15 @@ export default function BreakScheduleView({ schedule, onSaved }) {
         </table>
       </div>
 
-      {flaggedBreaks.length > 0 && (
-        <div className="px-5 py-4 border-t border-border bg-amber-50/60">
+      {needsCover.length > 0 && (
+        <div className="px-5 py-4 border-t border-border bg-slate-50/80">
           <div className="flex items-start gap-2">
-            <AlertTriangle className="w-4 h-4 text-amber-600 mt-0.5 shrink-0" />
+            <ArrowLeftRight className="w-4 h-4 text-slate-600 mt-0.5 shrink-0" />
             <div className="space-y-1.5">
-              {flaggedBreaks.map((b, i) => (
-                <p key={i} className="text-xs text-amber-800">
-                  <span className="font-medium">{b.team_member}</span> ({fmt(b.start_minutes)}–{fmt(b.end_minutes)}, {b.area}): {b.flag_reason}
+              <p className="text-xs font-medium text-slate-700">No automatic cover — pull someone off the floor:</p>
+              {needsCover.map((b, i) => (
+                <p key={i} className="text-xs text-slate-600">
+                  <span className="font-medium">{b.team_member}</span> ({fmt(b.start_minutes)}, {b.duration}m, {b.area})
                 </p>
               ))}
             </div>

@@ -3,6 +3,7 @@ import { Search, UserPlus, Loader2 } from "lucide-react";
 import { base44 } from "@/api/base44Client";
 import TeamMemberCard from "@/components/settings/TeamMemberCard";
 import DeleteAccountDialog from "@/components/settings/DeleteAccountDialog";
+import CoverageRequirements from "@/components/settings/CoverageRequirements";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 
@@ -112,6 +113,8 @@ export default function Settings() {
           ))}
         </div>
       )}
+
+      <CoverageRequirements />
 
       <div className="mt-8 rounded-2xl border border-destructive/30 bg-destructive/5 p-5">
         <h2 className="font-heading text-lg font-semibold">Danger zone</h2>

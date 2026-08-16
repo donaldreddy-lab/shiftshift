@@ -1,0 +1,28 @@
+{
+  "name": "CoverageSetting",
+  "type": "object",
+  "properties": {
+    "area": {
+      "type": "string",
+      "title": "Area"
+    },
+    "days": {
+      "type": "array",
+      "title": "Per-day minimums (index 0=Sun .. 6=Sat)",
+      "items": {
+        "type": "object",
+        "properties": {
+          "min": {
+            "type": "number",
+            "default": 1,
+            "title": "Minimum staff on floor"
+          }
+        }
+      },
+      "default": []
+    }
+  },
+  "required": [
+    "area"
+  ]
+}

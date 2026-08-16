@@ -5,21 +5,7 @@ function fmt(min) {
   return String(h).padStart(2, "0") + ":" + String(mm).padStart(2, "0");
 }
 
-const COVERAGE = {
-  "People Greeter": { min: 1 },
-  Register: { min: 1 },
-  "Toolshop Register": { min: 1 },
-  "Nursery Register": { min: 1 },
-  "Nursery Greeter": { min: 1 },
-  "Info Desk": { min: 1 },
-  "Front End Support": { min: 1 },
-  Cafe: { min: 1 },
-};
-const EQUIV = {
-  "Info Desk": "Front End Support",
-  "Front End Support": "Info Desk",
-};
-const SELF_MANAGED = new Set(["Online Fulfilment", "Click and Collect", "Reception"]);
+import { DEFAULT_COVERAGE, EQUIV, SELF_MANAGED } from "./coverageDefaults";
 
 const STATUS_RGB = {
   covered: [16, 185, 129],
@@ -42,8 +28,9 @@ function areaPresent(shifts, breaks, area, t) {
   return count;
 }
 
-export async function exportGanttPdf(schedule) {
+export async function exportGanttPdf(schedule, coverage) {
   const { jsPDF } = await import("jspdf");
+  coverage = coverage || DEFAULT_COVERAGE;
   const shifts = schedule.shifts || [];
   const breaks = schedule.breaks || [];
   if (!shifts.length) return;
@@ -169,7 +156,7 @@ export async function exportGanttPdf(schedule) {
   doc.text("On-floor coverage  (dashed line = minimum)", margin, y + 6);
   y += 14;
 
-  const covAreas = Object.keys(COVERAGE).filter((a) => byArea[a] || byArea[EQUIV[a]]);
+  const covAreas = Object.keys(coverage).filter((a) => byArea[a] || byArea[EQUIV[a]]);
   const laneH = 42;
   const step = 15;
 
@@ -180,7 +167,7 @@ export async function exportGanttPdf(schedule) {
       y = drawRulerContinuation(y);
     }
     const areas = new Set([area, EQUIV[area]]);
-    const min = COVERAGE[area].min;
+    const min = coverage[area].min;
     const pts = [];
     let maxC = min;
     for (let t = t0; t < t1; t += step) {

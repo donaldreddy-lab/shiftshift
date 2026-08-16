@@ -1,23 +1,8 @@
-import React, { useMemo, useState } from "react";
+import React, { useMemo, useState, useEffect } from "react";
 import { ChevronDown, Clock, Users, AlertTriangle, FileDown, Loader2 } from "lucide-react";
+import { base44 } from "@/api/base44Client";
 import { exportGanttPdf } from "@/utils/exportGanttPdf";
-
-// Mirrors the backend coverage config so the chart reflects the same rules.
-const COVERAGE = {
-  "People Greeter": { min: 1 },
-  Register: { min: 1 },
-  "Toolshop Register": { min: 1 },
-  "Nursery Register": { min: 1 },
-  "Nursery Greeter": { min: 1 },
-  "Info Desk": { min: 1 },
-  "Front End Support": { min: 1 },
-  Cafe: { min: 1 },
-};
-const EQUIV = {
-  "Info Desk": "Front End Support",
-  "Front End Support": "Info Desk",
-};
-const SELF_MANAGED = new Set(["Online Fulfilment", "Click and Collect", "Reception"]);
+import { DEFAULT_COVERAGE, EQUIV, SELF_MANAGED, resolveCoverage } from "@/utils/coverageDefaults";
 
 const STATUS_COLOR = {
   covered: "#10b981",
@@ -52,11 +37,28 @@ function areaPresent(shifts, breaks, area, t) {
 export default function CoverageGantt({ schedule }) {
   const [open, setOpen] = useState(false);
   const [exporting, setExporting] = useState(false);
+  const [coverage, setCoverage] = useState(DEFAULT_COVERAGE);
+
+  useEffect(() => {
+    let alive = true;
+    (async () => {
+      try {
+        const list = await base44.entities.CoverageSetting.list("-updated_date", 200);
+        const dow = schedule.schedule_date
+          ? new Date(schedule.schedule_date + "T00:00:00").getDay()
+          : new Date().getDay();
+        if (alive) setCoverage(resolveCoverage(list, dow));
+      } catch (e) {
+        // fall back to defaults
+      }
+    })();
+    return () => { alive = false; };
+  }, [schedule.schedule_date]);
 
   const handleExport = async () => {
     setExporting(true);
     try {
-      await exportGanttPdf(schedule);
+      await exportGanttPdf(schedule, coverage);
     } finally {
       setExporting(false);
     }
@@ -84,14 +86,14 @@ export default function CoverageGantt({ schedule }) {
   const gapRowH = 22;
 
   // Coverage lanes for areas that are coverage-required and have staff.
-  const coverageAreas = Object.keys(COVERAGE).filter((a) => byArea[a] || byArea[EQUIV[a]]);
+  const coverageAreas = Object.keys(coverage).filter((a) => byArea[a] || byArea[EQUIV[a]]);
 
   // Precompute coverage step data per area (15-min resolution).
   const coverageData = useMemo(() => {
     const step = 15;
     return coverageAreas.map((area) => {
       const areas = new Set([area, EQUIV[area]]);
-      const min = COVERAGE[area].min;
+      const min = coverage[area].min;
       const pts = [];
       let maxC = min;
       for (let t = t0; t < t1; t += step) {
@@ -105,7 +107,7 @@ export default function CoverageGantt({ schedule }) {
       const gaps = pts.filter((p) => p.c < min && p.rostered);
       return { area, min, pts, gaps, maxC };
     });
-  }, [coverageAreas, shifts, breaks, t0, t1]);
+  }, [coverageAreas, coverage, shifts, breaks, t0, t1]);
 
   if (!shifts.length) return null;
 

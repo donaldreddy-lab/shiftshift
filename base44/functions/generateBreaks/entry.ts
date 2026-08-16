@@ -13,7 +13,7 @@ const REQUIRES_TRAINING = new Set(["Info Desk", "Hire Shop", "Front End Support"
 // during its window. Where 2+ staff overlap in the window, the extra person is
 // spare capacity — use them to cover breaks (same area or pulled elsewhere)
 // without dropping below the minimum.
-const COVERAGE = {
+const COVERAGE_DEFAULT = {
   "People Greeter": { start: 0, end: 1440, min: 1 },
   "Register": { start: 9 * 60, end: 20 * 60, min: 1 },
   "Toolshop Register": { start: 0, end: 1440, min: 1 },
@@ -140,7 +140,7 @@ function maxConcurrent(placedBreaks, start, end, includeSelf) {
 // Place one shift's breaks into the global list, keeping at most 2 concurrent
 // breaks (hard for non-self-managed areas, soft for self-managed) and a 2-hour
 // gap between one person's own breaks.
-function placeShiftBreaks(shift, placedBreaks, allShifts, hard, lateThreshold, deadline) {
+function placeShiftBreaks(shift, placedBreaks, allShifts, hard, lateThreshold, deadline, coverage) {
   const durations = getBreakDurations(shift.shift_minutes);
   const winStart = shift.start_minutes + 90;
   const winEndRaw = shift.end_minutes - 60;
@@ -174,7 +174,7 @@ function placeShiftBreaks(shift, placedBreaks, allShifts, hard, lateThreshold, d
       // area at its minimum during the break (use the overlap as natural cover).
       // Hard in normal passes; softened to a penalty only as a last resort.
       let coverGap = 0;
-      const cov = COVERAGE[shift.area];
+      const cov = coverage[shift.area];
       if (cov) {
         const ws = Math.max(s, cov.start), we = Math.min(e, cov.end);
         if (ws < we) {
@@ -384,10 +384,25 @@ export default async function(req) {
     const isWeekend = dow === 0 || dow === 6;
     const lateThreshold = isWeekend ? 16 * 60 : 17 * 60;
     const deadline = isWeekend ? 18 * 60 + 15 : 20 * 60 + 15;
+
+    // Resolve per-day minimum coverage from saved CoverageSetting records
+    // (falls back to COVERAGE_DEFAULT when none exist for an area/day).
+    const coverage = {};
+    for (const [area, def] of Object.entries(COVERAGE_DEFAULT)) coverage[area] = { ...def };
+    try {
+      const covSettings = await base44.asServiceRole.entities.CoverageSetting.list('-updated_date', 200);
+      for (const area of Object.keys(COVERAGE_DEFAULT)) {
+        const rec = covSettings.find((s) => s.area === area);
+        if (rec && Array.isArray(rec.days) && rec.days[dow] && typeof rec.days[dow].min === 'number') {
+          coverage[area].min = rec.days[dow].min;
+        }
+      }
+    } catch (e) { /* defaults remain */ }
+
     const placedBreaks = [];
     const orderedShifts = shifts.slice().sort((a, b) => a.start_minutes - b.start_minutes);
-    for (const s of orderedShifts) if (!SELF_MANAGED.has(s.area)) placeShiftBreaks(s, placedBreaks, shifts, true, lateThreshold, deadline);
-    for (const s of orderedShifts) if (SELF_MANAGED.has(s.area)) placeShiftBreaks(s, placedBreaks, shifts, false, lateThreshold, deadline);
+    for (const s of orderedShifts) if (!SELF_MANAGED.has(s.area)) placeShiftBreaks(s, placedBreaks, shifts, true, lateThreshold, deadline, coverage);
+    for (const s of orderedShifts) if (SELF_MANAGED.has(s.area)) placeShiftBreaks(s, placedBreaks, shifts, false, lateThreshold, deadline, coverage);
 
     const allBreaks = placedBreaks.map((p) => ({
       team_member: p.team_member,
@@ -448,7 +463,7 @@ export default async function(req) {
         // cross-area candidate leaves their home area, so don't drop it below
         // its minimum there.
         const covArea = sameArea ? brk.area : shift.area;
-        const cov = COVERAGE[covArea];
+        const cov = coverage[covArea];
         if (cov) {
           const ws = Math.max(brk.start_minutes, cov.start), we = Math.min(brk.end_minutes, cov.end);
           if (ws < we) {
@@ -466,7 +481,7 @@ export default async function(req) {
           if (REQUIRES_TRAINING.has(brk.area) && !sameArea && !(coverMember.trained_areas || []).includes(brk.area)) continue;
         }
         const trained = coverMember ? (coverMember.trained_areas || []).includes(brk.area) : false;
-        const covHome = COVERAGE[shift.area];
+        const covHome = coverage[shift.area];
         const homeCount = areaCoverageCount(shifts, allBreaks, shift.area, brk.start_minutes, brk.end_minutes, null);
         const spare = sameArea ? homeCount > 1 : (!covHome || homeCount > covHome.min);
         candidates.push({ shift, member: coverMember, trained, sameArea, spare });

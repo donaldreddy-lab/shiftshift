@@ -103,6 +103,12 @@
         "covered": {
           "type": "number"
         },
+        "unassigned": {
+          "type": "number"
+        },
+        "self_managed": {
+          "type": "number"
+        },
         "flagged": {
           "type": "number"
         },

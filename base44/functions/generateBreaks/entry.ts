@@ -70,6 +70,9 @@ function getBreakDurations(shiftMinutes) {
   return [30, 30, 15];
 }
 
+function snapTo15(min) { return Math.round(min / 15) * 15; }
+function snapUp15(min) { return Math.ceil(min / 15) * 15; }
+
 function placeBreaks(shiftStart, shiftEnd, durations) {
   const windowStart = shiftStart + 120;
   const windowEnd = shiftEnd - 90;
@@ -78,10 +81,13 @@ function placeBreaks(shiftStart, shiftEnd, durations) {
   if (windowEnd <= windowStart) {
     // not enough room; place what we can starting at shiftStart+120
     let cursor = Math.max(shiftStart + 120, shiftStart);
+    let lastEnd = shiftStart;
     for (const d of durations) {
-      if (cursor + d > shiftEnd - 30) break;
-      breaks.push({ start: cursor, end: cursor + d, duration: d });
-      cursor += d + 15;
+      let start = Math.max(snapTo15(cursor), snapUp15(lastEnd + 15));
+      if (start + d > shiftEnd - 30) break;
+      breaks.push({ start, end: start + d, duration: d });
+      lastEnd = start + d;
+      cursor = start + d + 15;
     }
     return breaks;
   }
@@ -89,9 +95,18 @@ function placeBreaks(shiftStart, shiftEnd, durations) {
   const available = windowEnd - windowStart - totalBreak;
   const gap = Math.max(5, Math.floor(available / (durations.length + 1)));
   let cursor = windowStart + gap;
+  let lastEnd = shiftStart;
   for (const d of durations) {
-    breaks.push({ start: cursor, end: cursor + d, duration: d });
-    cursor += d + gap;
+    // snap start to the nearest 15-min mark (prefer on the hour),
+    // never earlier than 15 min after the previous break ends or the window start
+    let start = Math.max(snapTo15(cursor), snapUp15(lastEnd + 15), snapUp15(windowStart));
+    // if snapping would push the break past the window, fall back to the raw spot
+    if (start + d > windowEnd) {
+      start = Math.max(cursor, snapUp15(lastEnd + 15));
+    }
+    breaks.push({ start, end: start + d, duration: d });
+    lastEnd = start + d;
+    cursor = start + d + gap;
   }
   return breaks;
 }

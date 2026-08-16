@@ -45,13 +45,16 @@ function BreakCell({ b, editing, onUpdate }) {
             onChange={(e) => onUpdate({ start: e.target.value })}
             className="w-[78px] h-7 rounded border border-black/20 bg-white px-1 text-[11px]"
           />
-          <span className="text-black/40">–</span>
+          <span className="text-black/40">@</span>
           <input
-            type="time"
-            value={fmt(((b.end_minutes % 1440) + 1440) % 1440)}
-            onChange={(e) => onUpdate({ end: e.target.value })}
-            className="w-[78px] h-7 rounded border border-black/20 bg-white px-1 text-[11px]"
+            type="number"
+            min="5"
+            step="5"
+            value={b.duration}
+            onChange={(e) => onUpdate({ duration: e.target.value })}
+            className="w-[52px] h-7 rounded border border-black/20 bg-white px-1 text-[11px]"
           />
+          <span className="text-black/40 text-[11px]">m</span>
         </div>
         <input
           type="text"
@@ -72,7 +75,7 @@ function BreakCell({ b, editing, onUpdate }) {
       </div>
     );
   }
-  const time = `${fmt(b.start_minutes)}–${fmt(b.end_minutes)}`;
+  const time = fmt(b.start_minutes);
   const len = `${b.duration}m`;
   let coverLine;
   if (b.status === "self-managed") {
@@ -138,12 +141,10 @@ export default function BreakScheduleView({ schedule, onSaved }) {
           nb.start_minutes = timeToMinutes(patch.start);
           nb.start = fmt(nb.start_minutes);
         }
-        if (patch.end != null) {
-          let em = timeToMinutes(patch.end);
-          if (em != null && nb.start_minutes != null && em <= nb.start_minutes) em += 1440;
-          nb.end_minutes = em;
-          nb.end = fmt(em);
-          if (nb.start_minutes != null && nb.end_minutes != null) nb.duration = nb.end_minutes - nb.start_minutes;
+        if (patch.duration != null) nb.duration = Number(patch.duration);
+        if (nb.start_minutes != null && nb.duration != null) {
+          nb.end_minutes = nb.start_minutes + nb.duration;
+          nb.end = fmt(nb.end_minutes);
         }
         return nb;
       })

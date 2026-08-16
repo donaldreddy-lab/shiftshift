@@ -6,6 +6,8 @@ import BreakCell from "./BreakCell";
 import BreakScheduleMobile from "./BreakScheduleMobile";
 import { fmt, timeToMinutes, PEACH, HEADER_BG, SUBHEADER_BG, GRID, BREAK_BG } from "./breakUtils";
 
+const SELF_MANAGED = new Set(["Online Fulfilment", "Click and Collect", "Reception"]);
+
 export default function BreakScheduleView({ schedule, onSaved }) {
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState([]);
@@ -26,12 +28,18 @@ export default function BreakScheduleView({ schedule, onSaved }) {
   const overlapMap = useMemo(() => {
     const m = new Map();
     for (const b of breaks) {
+      // Self-managed areas handle their own breaks — never counted as overlaps.
+      if (SELF_MANAGED.has(b.area)) {
+        m.set(b, 0);
+        continue;
+      }
       if (b.start_minutes == null || b.end_minutes == null) {
         m.set(b, 1);
         continue;
       }
       const events = [];
       for (const o of breaks) {
+        if (SELF_MANAGED.has(o.area)) continue;
         if (o.start_minutes == null || o.end_minutes == null) continue;
         if (o.start_minutes < b.end_minutes && b.start_minutes < o.end_minutes) {
           events.push([Math.max(o.start_minutes, b.start_minutes), 1]);

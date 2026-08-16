@@ -52,9 +52,12 @@ export default function Settings() {
     }
   };
 
-  const filtered = members.filter((m) =>
-    !query || m.name?.toLowerCase().includes(query.toLowerCase()) || (m.employee_id || "").toLowerCase().includes(query.toLowerCase())
-  );
+  const filtered = members
+    .filter((m) =>
+      !query || m.name?.toLowerCase().includes(query.toLowerCase()) || (m.employee_id || "").toLowerCase().includes(query.toLowerCase())
+    )
+    .slice()
+    .sort((a, b) => (a.name || "").localeCompare(b.name || ""));
 
   return (
     <Layout>

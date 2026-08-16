@@ -1,5 +1,5 @@
 import React, { useState } from "react";
-import { Trash2, UserPlus, Search, Loader2, Save } from "lucide-react";
+import { Trash2, UserPlus, Search, Loader2, Save, Phone } from "lucide-react";
 import { base44 } from "@/api/base44Client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -15,6 +15,22 @@ const AREAS = [
 ];
 const REQUIRES_18 = new Set(["Nursery Greeter", "People Greeter"]);
 const REQUIRES_TRAINING = new Set(["Info Desk", "Hire Shop", "Front End Support", "Cafe"]);
+
+const STATUS_STYLES = {
+  "Full Time": "bg-emerald-100 text-emerald-700",
+  "Expert Full Time": "bg-emerald-200 text-emerald-800",
+  "Part Time": "bg-blue-100 text-blue-700",
+  "Expert Part Time": "bg-blue-200 text-blue-800",
+  "Casual": "bg-purple-100 text-purple-700",
+  "Expert Casual": "bg-purple-200 text-purple-800",
+};
+
+function serviceYears(start_date) {
+  if (!start_date) return null;
+  const ms = Date.now() - new Date(start_date).getTime();
+  if (ms < 0) return 0;
+  return Math.round(ms / (365.25 * 24 * 60 * 60 * 1000));
+}
 
 export default function TeamMemberCard({ member, onChange, onDelete }) {
   const [saving, setSaving] = useState(false);
@@ -55,9 +71,30 @@ export default function TeamMemberCard({ member, onChange, onDelete }) {
             onBlur={(e) => e.target.value !== (member.employee_id || "") && update({ employee_id: e.target.value })}
             className="text-xs text-muted-foreground border-0 px-0 h-6 focus-visible:ring-0 focus-visible:ring-offset-0 mt-0.5"
           />
+          <div className="flex items-center gap-1.5 mt-2 flex-wrap">
+            {member.employment_status && (
+              <span className={cn("text-[11px] font-medium px-2 py-0.5 rounded-full", STATUS_STYLES[member.employment_status] || "bg-muted text-muted-foreground")}>
+                {member.employment_status}
+              </span>
+            )}
+            {serviceYears(member.start_date) != null && (
+              <span className="text-[11px] font-medium px-2 py-0.5 rounded-full bg-amber-100 text-amber-700">
+                {serviceYears(member.start_date)} yr{serviceYears(member.start_date) === 1 ? "" : "s"}
+              </span>
+            )}
+          </div>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-1.5 shrink-0">
           {saving && <Loader2 className="w-3.5 h-3.5 animate-spin text-muted-foreground" />}
+          {member.phone_number && (
+            <a
+              href={`tel:${member.phone_number.replace(/\s+/g, "")}`}
+              className="p-1.5 rounded-lg text-muted-foreground hover:text-emerald-600 hover:bg-emerald-50 transition-colors"
+              title={`Call ${member.phone_number}`}
+            >
+              <Phone className="w-4 h-4" />
+            </a>
+          )}
           <button onClick={() => onDelete(member)} className="p-1.5 rounded-lg text-muted-foreground hover:text-destructive hover:bg-destructive/5 transition-colors">
             <Trash2 className="w-4 h-4" />
           </button>

@@ -162,8 +162,24 @@ export default async function(req) {
 
     // Load existing team members
     const existing = await base44.asServiceRole.entities.TeamMember.list('-updated_date', 500);
+    // Normalize names to "firstName lastInitial" for matching, so "Webb, Sam"
+    // and "Sam W" resolve to the same team member instead of creating duplicates.
+    const normName = (raw) => {
+      const s = (raw || '').trim();
+      if (!s) return '';
+      if (s.includes(',')) {
+        const [last, first] = s.split(',').map((x) => x.trim());
+        const fn = (first.split(/\s+/)[0] || '');
+        const li = ((last.replace(/[^A-Za-z]/g, '') || '')[0] || '').toUpperCase();
+        return (fn + ' ' + li).toLowerCase();
+      }
+      const parts = s.split(/\s+/);
+      const fn = parts[0] || '';
+      const li = parts.length > 1 ? ((parts[parts.length - 1].replace(/[^A-Za-z]/g, '') || '')[0] || '').toUpperCase() : '';
+      return (fn + ' ' + li).toLowerCase();
+    };
     const byName = {};
-    for (const m of existing) byName[m.name.toLowerCase()] = m;
+    for (const m of existing) byName[normName(m.name)] = m;
     const newMembers = [];
 
     // Build shifts
@@ -187,7 +203,7 @@ export default async function(req) {
         shift_minutes: endM - start
       });
       // sync team member
-      if (!byName[name.toLowerCase()]) {
+      if (!byName[normName(name)]) {
         try {
           const created = await base44.asServiceRole.entities.TeamMember.create({
             name,
@@ -228,7 +244,7 @@ export default async function(req) {
 
     // Assign covers
     for (const brk of allBreaks) {
-      const member = byName[brk.team_member.toLowerCase()];
+      const member = byName[normName(brk.team_member)];
       const candidates = [];
       for (const shift of shifts) {
         if (shift.name === brk.team_member) continue;
@@ -241,7 +257,7 @@ export default async function(req) {
         const alreadyCovering = allBreaks.some(o => o.cover === shift.name && overlaps(brk.start_minutes, brk.end_minutes, o.start_minutes, o.end_minutes));
         if (alreadyCovering) continue;
         // qualification checks
-        const coverMember = byName[shift.name.toLowerCase()];
+        const coverMember = byName[normName(shift.name)];
         if (coverMember) {
           if (REQUIRES_18.has(brk.area) && !coverMember.is_18_plus) continue;
           if (REQUIRES_TRAINING.has(brk.area) && !(coverMember.trained_areas || []).includes(brk.area)) continue;

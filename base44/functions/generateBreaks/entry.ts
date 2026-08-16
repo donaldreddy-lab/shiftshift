@@ -72,6 +72,30 @@ function getBreakDurations(shiftMinutes) {
 
 function snapUp15(min) { return Math.ceil(min / 15) * 15; }
 
+// Max concurrent breaks in the late window (>= threshold), counting only the
+// portion of each break that falls at/after the threshold. Includes candidate.
+function maxConcurrentLate(placedBreaks, start, end, threshold, includeSelf) {
+  const lateStart = Math.max(start, threshold);
+  const lateEnd = end;
+  if (lateEnd <= lateStart) return 0;
+  const events = [];
+  for (const p of placedBreaks) {
+    if (!includeSelf && SELF_MANAGED.has(p.area)) continue;
+    const ps = Math.max(p.start_minutes, threshold);
+    const pe = p.end_minutes;
+    if (ps < pe && ps < lateEnd && lateStart < pe) {
+      events.push([Math.max(ps, lateStart), 1]);
+      events.push([Math.min(pe, lateEnd), -1]);
+    }
+  }
+  events.push([lateStart, 1]);
+  events.push([lateEnd, -1]);
+  events.sort((a, b) => a[0] - b[0] || a[1] - b[1]);
+  let cur = 0, mx = 0;
+  for (const ev of events) { cur += ev[1]; if (cur > mx) mx = cur; }
+  return mx;
+}
+
 // Max concurrent breaks overlapping [start, end), optionally including
 // self-managed areas. Includes the candidate slot itself in the count.
 function maxConcurrent(placedBreaks, start, end, includeSelf) {
@@ -94,29 +118,64 @@ function maxConcurrent(placedBreaks, start, end, includeSelf) {
 // Place one shift's breaks into the global list, keeping at most 2 concurrent
 // breaks (hard for non-self-managed areas, soft for self-managed) and a 2-hour
 // gap between one person's own breaks.
-function placeShiftBreaks(shift, placedBreaks, hard) {
+function placeShiftBreaks(shift, placedBreaks, hard, lateThreshold, deadline) {
   const durations = getBreakDurations(shift.shift_minutes);
   const winStart = shift.start_minutes + 120;
-  const winEnd = shift.end_minutes - 90;
+  const winEndRaw = shift.end_minutes - 90;
+  const winEnd = deadline != null ? Math.min(winEndRaw, deadline) : winEndRaw;
   let prevEnd = shift.start_minutes;
   for (let i = 0; i < durations.length; i++) {
     const d = durations[i];
-    const earliest = Math.max(winStart, prevEnd + (i === 0 ? 0 : 120));
+    const gapEarliest = Math.max(winStart, prevEnd + (i === 0 ? 0 : 120));
     const latest = winEnd - d;
     const ideal = winStart + Math.round((i + 1) * (winEnd - winStart - d) / (durations.length + 1));
     let best = null;
-    if (latest >= earliest) {
-      for (let s = snapUp15(earliest); s <= latest; s += 15) {
-        const e = s + d;
-        const mcHard = maxConcurrent(placedBreaks, s, e, false);
-        if (hard && mcHard > 2) continue;
-        const mcAll = maxConcurrent(placedBreaks, s, e, true);
-        const score = mcAll * 10000 + Math.abs(s - ideal);
-        if (!best || score < best.score) best = { start: s, end: e, duration: d, score };
+    const trySlot = (s, allowHardBreach) => {
+      const e = s + d;
+      if (e > winEnd + 0.001) return null;
+      // never overlap this person's own breaks
+      const ownOverlap = placedBreaks.some((p) => p.team_member === shift.name && p.start_minutes < e && s < p.end_minutes);
+      if (ownOverlap) return null;
+      const mcHard = maxConcurrent(placedBreaks, s, e, false);
+      if (!allowHardBreach && hard && mcHard > 2) return null;
+      // Late window: after lateThreshold we aim for one at a time. When the
+      // late window is over-subscribed this can't always be honoured, so it's
+      // a heavy soft penalty (not a hard reject) — breaks spread out and any
+      // residual overlap shows as an amber/red flag for the manager.
+      const mcLate = lateThreshold != null && e > lateThreshold
+        ? maxConcurrentLate(placedBreaks, s, e, lateThreshold, false) : 0;
+      const mcAll = maxConcurrent(placedBreaks, s, e, true);
+      const score = mcLate * mcLate * 100000 + mcAll * 10000 + Math.abs(s - ideal);
+      return { start: s, end: e, duration: d, score };
+    };
+    // Pass 1: respect the 2-hour gap between this person's breaks.
+    if (gapEarliest <= latest) {
+      for (let s = snapUp15(gapEarliest); s <= latest; s += 15) {
+        const cand = trySlot(s, false);
+        if (cand && (!best || cand.score < best.score)) best = cand;
       }
     }
+    // Pass 2: relax the 2-hour gap (deadline pressure) — still no own-overlap.
+    if (!best && winStart <= latest) {
+      for (let s = snapUp15(winStart); s <= latest; s += 15) {
+        const cand = trySlot(s, false);
+        if (cand && (!best || cand.score < best.score)) best = cand;
+      }
+    }
+    // Last resort: the window is genuinely over-subscribed — scan the whole
+    // window allowing the 2-overlap cap to be breached, scoring by best-effort
+    // spread so overflow breaks distribute instead of piling at one slot.
+    // Own-overlap and the after-hours deadline remain hard.
+    if (!best && winStart <= winEnd - d) {
+      for (let s = snapUp15(winStart); s <= winEnd - d; s += 15) {
+        const cand = trySlot(s, true);
+        if (cand && (!best || cand.score < best.score)) best = cand;
+      }
+    }
+    // Absolute fallback: clamp to the after-hours deadline (own-overlap only).
     if (!best) {
-      const s = snapUp15(earliest);
+      let s = winStart <= winEnd - d ? winEnd - d : snapUp15(gapEarliest);
+      if (deadline != null && s + d > deadline) s = Math.max(shift.start_minutes + 120, deadline - d);
       best = { start: s, end: s + d, duration: d };
     }
     placedBreaks.push({
@@ -128,7 +187,7 @@ function placeShiftBreaks(shift, placedBreaks, hard) {
       end: minutesToTime(best.end),
       duration: best.duration
     });
-    prevEnd = best.end;
+    prevEnd = Math.max(prevEnd, best.end);
   }
 }
 
@@ -260,10 +319,17 @@ export default async function(req) {
 
     // Generate breaks globally: non-self-managed first (hard 2-overlap limit),
     // then self-managed (soft — tries to keep total ≤ 2 but allows more).
+    // After-hours rule:
+    //   Mon–Fri: after 17:00 only 1 break at a time, all breaks done by 20:15.
+    //   Sat–Sun: after 16:00 only 1 break at a time, all breaks done by 18:15.
+    const dow = new Date(scheduleDate + 'T00:00:00').getDay(); // 0 Sun .. 6 Sat
+    const isWeekend = dow === 0 || dow === 6;
+    const lateThreshold = isWeekend ? 16 * 60 : 17 * 60;
+    const deadline = isWeekend ? 18 * 60 + 15 : 20 * 60 + 15;
     const placedBreaks = [];
     const orderedShifts = shifts.slice().sort((a, b) => a.start_minutes - b.start_minutes);
-    for (const s of orderedShifts) if (!SELF_MANAGED.has(s.area)) placeShiftBreaks(s, placedBreaks, true);
-    for (const s of orderedShifts) if (SELF_MANAGED.has(s.area)) placeShiftBreaks(s, placedBreaks, false);
+    for (const s of orderedShifts) if (!SELF_MANAGED.has(s.area)) placeShiftBreaks(s, placedBreaks, true, lateThreshold, deadline);
+    for (const s of orderedShifts) if (SELF_MANAGED.has(s.area)) placeShiftBreaks(s, placedBreaks, false, lateThreshold, deadline);
 
     const allBreaks = placedBreaks.map((p) => ({
       team_member: p.team_member,

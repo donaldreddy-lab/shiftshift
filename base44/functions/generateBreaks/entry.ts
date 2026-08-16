@@ -104,54 +104,61 @@ export default async function(req) {
     const body = await req.json();
     const fileUrl = body.file_url;
     const scheduleDate = body.schedule_date || new Date().toISOString().slice(0, 10);
-    if (!fileUrl) return Response.json({ error: 'file_url is required' }, { status: 400 });
 
-    // Fetch and parse the roster file directly (supports .xlsx, .xls, .csv)
-    const fileRes = await fetch(fileUrl);
-    if (!fileRes.ok) {
-      return Response.json({ error: 'Could not download the uploaded file.' }, { status: 400 });
-    }
-    const ab = await fileRes.arrayBuffer();
-    const workbook = XLSX.read(ab, { type: 'array' });
-    const sheetName = workbook.SheetNames[0];
-    const sheet = workbook.Sheets[sheetName];
-    const rows = XLSX.utils.sheet_to_json(sheet, { defval: '' });
+    let roster;
+    if (Array.isArray(body.roster) && body.roster.length > 0) {
+      // Direct roster data (manual entry / testing without an uploaded file)
+      roster = body.roster;
+    } else {
+      if (!fileUrl) return Response.json({ error: 'Either file_url or a roster array is required' }, { status: 400 });
 
-    if (!rows.length) {
-      return Response.json({ error: 'No rows could be read from the file. Check the spreadsheet has headers like Name, Start, End and Area.' }, { status: 400 });
-    }
-
-    // Map various column header formats to our fields
-    const findKey = (row, candidates) => {
-      const keys = Object.keys(row);
-      for (const c of candidates) {
-        const cl = c.toLowerCase();
-        const hit = keys.find((k) => k.toLowerCase().trim() === cl);
-        if (hit) return hit;
+      // Fetch and parse the roster file directly (supports .xlsx, .xls, .csv)
+      const fileRes = await fetch(fileUrl);
+      if (!fileRes.ok) {
+        return Response.json({ error: 'Could not download the uploaded file.' }, { status: 400 });
       }
-      for (const c of candidates) {
-        const cl = c.toLowerCase();
-        const hit = keys.find((k) => k.toLowerCase().includes(cl));
-        if (hit) return hit;
+      const ab = await fileRes.arrayBuffer();
+      const workbook = XLSX.read(ab, { type: 'array' });
+      const sheetName = workbook.SheetNames[0];
+      const sheet = workbook.Sheets[sheetName];
+      const rows = XLSX.utils.sheet_to_json(sheet, { defval: '' });
+
+      if (!rows.length) {
+        return Response.json({ error: 'No rows could be read from the file. Check the spreadsheet has headers like Name, Start, End and Area.' }, { status: 400 });
       }
-      return null;
-    };
-    const firstRow = rows[0];
-    const nameKey = findKey(firstRow, ['name', 'employee', 'staff', 'team member', 'full name']);
-    const startKey = findKey(firstRow, ['start', 'start time', 'in', 'shift start', 'from', 'time in']);
-    const endKey = findKey(firstRow, ['end', 'end time', 'out', 'shift end', 'to', 'time out', 'finish']);
-    const areaKey = findKey(firstRow, ['area', 'location', 'department', 'zone', 'role', 'position', 'station', 'assignment']);
 
-    if (!nameKey || !startKey || !endKey) {
-      return Response.json({ error: `Could not find the expected columns. Detected — Name: ${nameKey || 'missing'}, Start: ${startKey || 'missing'}, End: ${endKey || 'missing'}, Area: ${areaKey || 'missing'}. Make sure your spreadsheet has Name, Start time, End time (and Area) headers.` }, { status: 400 });
+      // Map various column header formats to our fields
+      const findKey = (row, candidates) => {
+        const keys = Object.keys(row);
+        for (const c of candidates) {
+          const cl = c.toLowerCase();
+          const hit = keys.find((k) => k.toLowerCase().trim() === cl);
+          if (hit) return hit;
+        }
+        for (const c of candidates) {
+          const cl = c.toLowerCase();
+          const hit = keys.find((k) => k.toLowerCase().includes(cl));
+          if (hit) return hit;
+        }
+        return null;
+      };
+      const firstRow = rows[0];
+      const nameKey = findKey(firstRow, ['name', 'employee', 'staff', 'team member', 'full name']);
+      const startKey = findKey(firstRow, ['start', 'start time', 'in', 'shift start', 'from', 'time in']);
+      const endKey = findKey(firstRow, ['end', 'end time', 'out', 'shift end', 'to', 'time out', 'finish']);
+      const areaKey = findKey(firstRow, ['area', 'location', 'department', 'zone', 'role', 'position', 'station', 'assignment']);
+
+      if (!nameKey || !startKey || !endKey) {
+        return Response.json({ error: `Could not find the expected columns. Detected — Name: ${nameKey || 'missing'}, Start: ${startKey || 'missing'}, End: ${endKey || 'missing'}, Area: ${areaKey || 'missing'}. Make sure your spreadsheet has Name, Start time, End time (and Area) headers.` }, { status: 400 });
+      }
+
+      roster = rows.map((r) => ({
+        name: r[nameKey],
+        start_time: r[startKey],
+        end_time: r[endKey],
+        area: areaKey ? r[areaKey] : ''
+      }));
     }
-
-    const roster = rows.map((r) => ({
-      name: r[nameKey],
-      start_time: r[startKey],
-      end_time: r[endKey],
-      area: areaKey ? r[areaKey] : ''
-    }));
 
     // Load existing team members
     const existing = await base44.asServiceRole.entities.TeamMember.list('-updated_date', 500);

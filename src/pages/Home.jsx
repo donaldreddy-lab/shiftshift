@@ -1,5 +1,6 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import { Info, Sparkles } from "lucide-react";
+import { base44 } from "@/api/base44Client";
 import Layout from "@/components/Layout";
 import UploadRoster from "@/components/breaks/UploadRoster";
 import SummaryCards from "@/components/breaks/SummaryCards";
@@ -7,6 +8,12 @@ import BreakScheduleView from "@/components/breaks/BreakScheduleView";
 
 export default function Home() {
   const [schedule, setSchedule] = useState(null);
+
+  useEffect(() => {
+    base44.entities.BreakSchedule.list('-created_date', 1)
+      .then((list) => { if (list.length > 0) setSchedule(list[0]); })
+      .catch(() => {});
+  }, []);
 
   return (
     <Layout>

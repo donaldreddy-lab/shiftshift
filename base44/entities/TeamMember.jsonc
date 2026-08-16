@@ -1,0 +1,47 @@
+{
+  "name": "TeamMember",
+  "type": "object",
+  "properties": {
+    "name": {
+      "type": "string",
+      "title": "Name",
+      "description": "Team member's full name as it appears on the roster"
+    },
+    "employee_id": {
+      "type": "string",
+      "title": "Employee ID / Number",
+      "default": ""
+    },
+    "is_18_plus": {
+      "type": "boolean",
+      "title": "18 years or older",
+      "default": false
+    },
+    "trained_areas": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "enum": [
+          "People Greeter",
+          "Register",
+          "Info Desk",
+          "Front End Support",
+          "Hire Shop",
+          "Online Fulfilment",
+          "Click and Collect",
+          "Nursery Register",
+          "Nursery Greeter",
+          "BSCO",
+          "Toolshop Register",
+          "Key Holder",
+          "Cafe"
+        ]
+      },
+      "default": [],
+      "title": "Trained Areas"
+    }
+  },
+  "required": [
+    "name"
+  ]
+}

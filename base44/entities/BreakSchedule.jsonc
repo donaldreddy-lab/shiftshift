@@ -1,0 +1,122 @@
+{
+  "name": "BreakSchedule",
+  "type": "object",
+  "properties": {
+    "schedule_date": {
+      "type": "string",
+      "format": "date",
+      "title": "Schedule Date"
+    },
+    "status": {
+      "type": "string",
+      "enum": [
+        "generated",
+        "flagged"
+      ],
+      "default": "generated",
+      "title": "Status"
+    },
+    "shifts": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "area": {
+            "type": "string"
+          },
+          "start": {
+            "type": "string"
+          },
+          "end": {
+            "type": "string"
+          },
+          "start_minutes": {
+            "type": "number"
+          },
+          "end_minutes": {
+            "type": "number"
+          },
+          "shift_minutes": {
+            "type": "number"
+          },
+          "break_count": {
+            "type": "number"
+          }
+        }
+      },
+      "default": []
+    },
+    "breaks": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "team_member": {
+            "type": "string"
+          },
+          "area": {
+            "type": "string"
+          },
+          "start": {
+            "type": "string"
+          },
+          "end": {
+            "type": "string"
+          },
+          "start_minutes": {
+            "type": "number"
+          },
+          "end_minutes": {
+            "type": "number"
+          },
+          "duration": {
+            "type": "number"
+          },
+          "cover": {
+            "type": "string"
+          },
+          "cover_area": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          },
+          "flag_reason": {
+            "type": "string"
+          }
+        }
+      },
+      "default": []
+    },
+    "summary": {
+      "type": "object",
+      "properties": {
+        "total_staff": {
+          "type": "number"
+        },
+        "total_breaks": {
+          "type": "number"
+        },
+        "covered": {
+          "type": "number"
+        },
+        "flagged": {
+          "type": "number"
+        },
+        "new_members": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "default": {}
+    }
+  },
+  "required": [
+    "schedule_date"
+  ]
+}

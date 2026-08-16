@@ -86,8 +86,12 @@ export default function BreakScheduleView({ schedule }) {
                 </td>
                 <td className="px-5 py-3">
                   {b.status === "covered" ? (
-                    <span className="inline-flex items-center gap-1.5 text-emerald-600 text-xs font-medium">
+                    <span className="inline-flex items-center gap-1.5 text-emerald-600 text-xs font-medium" title={b.flag_reason}>
                       <CheckCircle2 className="w-3.5 h-3.5" /> Covered
+                    </span>
+                  ) : b.status === "self-managed" ? (
+                    <span className="inline-flex items-center gap-1.5 text-sky-600 text-xs font-medium" title={b.flag_reason}>
+                      <CheckCircle2 className="w-3.5 h-3.5" /> Self-managed
                     </span>
                   ) : (
                     <span className="inline-flex items-center gap-1.5 text-amber-600 text-xs font-medium" title={b.flag_reason}>

@@ -9,6 +9,10 @@ const AREAS = [
 ];
 const REQUIRES_18 = new Set(["Nursery Greeter", "People Greeter"]);
 const REQUIRES_TRAINING = new Set(["Info Desk", "Hire Shop", "Front End Support", "Cafe"]);
+// Areas that must always have at least one person present — breaks need a cover
+const ALWAYS_COVERED = new Set(["People Greeter", "Nursery Register", "Nursery Greeter", "Toolshop Register", "Register", "Info Desk"]);
+// Areas that manage their own break cover internally — no cover assignment needed
+const SELF_MANAGED = new Set(["Online Fulfilment", "Click and Collect"]);
 
 function normalizeArea(raw) {
   if (!raw) return "";
@@ -244,6 +248,15 @@ export default async function(req) {
 
     // Assign covers
     for (const brk of allBreaks) {
+      // Self-managed areas handle their own breaks internally — no cover needed
+      if (SELF_MANAGED.has(brk.area)) {
+        brk.cover = "";
+        brk.cover_area = "";
+        brk.status = "self-managed";
+        brk.flag_reason = "Self-managed area — covers own breaks";
+        continue;
+      }
+
       const member = byName[normName(brk.team_member)];
       const candidates = [];
       for (const shift of shifts) {
@@ -262,29 +275,34 @@ export default async function(req) {
           if (REQUIRES_18.has(brk.area) && !coverMember.is_18_plus) continue;
           if (REQUIRES_TRAINING.has(brk.area) && !(coverMember.trained_areas || []).includes(brk.area)) continue;
         }
-        candidates.push({ shift, member: coverMember });
+        const trained = coverMember ? (coverMember.trained_areas || []).includes(brk.area) : false;
+        candidates.push({ shift, member: coverMember, trained });
       }
       if (candidates.length > 0) {
-        // prefer the candidate with the fewest covers already assigned
+        // Concentrate covers onto 1–2 dedicated people for the day: prefer a
+        // trained candidate, then the candidate already covering the most breaks
+        // (so the same floater keeps covering), as long as they're free.
         candidates.sort((a, b) => {
+          if (a.trained !== b.trained) return a.trained ? -1 : 1;
           const aCount = allBreaks.filter(o => o.cover === a.shift.name).length;
           const bCount = allBreaks.filter(o => o.cover === b.shift.name).length;
-          return aCount - bCount;
+          return bCount - aCount;
         });
         const chosen = candidates[0];
         brk.cover = chosen.shift.name;
         brk.cover_area = chosen.shift.area;
         brk.status = "covered";
+        brk.flag_reason = "Swap with " + chosen.shift.name;
       } else {
         // determine why
-        let reason = "No available cover";
+        let reason = "No available cover — swap required";
         const eligibleWorking = shifts.filter(s => s.name !== brk.team_member && s.start_minutes <= brk.start_minutes && s.end_minutes >= brk.end_minutes);
         if (eligibleWorking.length === 0) {
-          reason = "Nobody else is working for the full break window";
+          reason = "Nobody else is working for the full break window — swap required";
         } else if (REQUIRES_18.has(brk.area)) {
-          reason = "No 18+ trained cover available — swap required for " + brk.area;
-        } else if (REQUIRES_TRAINING.has(brk.area)) {
-          reason = "No cover trained for " + brk.area + " — swap required";
+          reason = "No 18+ cover available for " + brk.area + " — swap required";
+        } else if (REQUIRES_TRAINING.has(brk.area) || ALWAYS_COVERED.has(brk.area)) {
+          reason = "No cover available for " + brk.area + " — must stay staffed, swap required";
         } else {
           reason = "All eligible staff are on break or already covering — overlap may be needed";
         }
@@ -300,6 +318,7 @@ export default async function(req) {
 
     const covered = allBreaks.filter(b => b.status === "covered").length;
     const flagged = allBreaks.filter(b => b.status === "flagged").length;
+    const selfManaged = allBreaks.filter(b => b.status === "self-managed").length;
 
     // Save schedule
     const schedule = await base44.asServiceRole.entities.BreakSchedule.create({
@@ -312,6 +331,7 @@ export default async function(req) {
         total_breaks: allBreaks.length,
         covered,
         flagged,
+        self_managed: selfManaged,
         new_members: newMembers
       }
     });
@@ -327,6 +347,7 @@ export default async function(req) {
         total_breaks: allBreaks.length,
         covered,
         flagged,
+        self_managed: selfManaged,
         new_members: newMembers
       }
     });

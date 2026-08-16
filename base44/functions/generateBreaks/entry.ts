@@ -92,17 +92,52 @@ function placeBreaks(shiftStart, shiftEnd, durations) {
     return breaks;
   }
   const totalBreak = durations.reduce((a, b) => a + b, 0);
-  const available = windowEnd - windowStart - totalBreak;
-  const gap = Math.max(5, Math.floor(available / (durations.length + 1)));
-  let cursor = windowStart + gap;
+  const totalSpan = windowEnd - windowStart;
+
+  if (durations.length === 1) {
+    const d = durations[0];
+    let start = snapUp15(windowStart);
+    if (start + d > windowEnd) start = windowStart;
+    breaks.push({ start, end: start + d, duration: d });
+    return breaks;
+  }
+
+  if (totalSpan <= totalBreak) {
+    // window too small for real gaps — pack from windowStart with 15-min gaps
+    let cursor = windowStart;
+    let lastEnd = shiftStart;
+    for (const d of durations) {
+      let start = Math.max(cursor, snapUp15(lastEnd + 15));
+      if (start + d > windowEnd) start = cursor;
+      breaks.push({ start, end: start + d, duration: d });
+      lastEnd = start + d;
+      cursor = start + d + 15;
+    }
+    return breaks;
+  }
+
+  const n = durations.length;
+  const MIN_GAP = 120; // 2 hours between consecutive breaks
+  let gap, margin;
+  if (totalSpan >= totalBreak + (n - 1) * MIN_GAP) {
+    // enough room: keep breaks 2h apart and split the slack evenly between
+    // the start and end of the shift so no big unbroken chunk is left at the end
+    gap = MIN_GAP;
+    margin = Math.floor((totalSpan - totalBreak - (n - 1) * MIN_GAP) / 2);
+  } else {
+    // shift too short for 2h gaps — use the largest gap that fits, edge to edge
+    gap = Math.floor((totalSpan - totalBreak) / (n - 1));
+    margin = 0;
+  }
+
+  let cursor = windowStart + margin;
   let lastEnd = shiftStart;
   for (const d of durations) {
-    // snap start to the nearest 15-min mark (prefer on the hour),
-    // never earlier than 15 min after the previous break ends or the window start
-    let start = Math.max(snapTo15(cursor), snapUp15(lastEnd + 15), snapUp15(windowStart));
-    // if snapping would push the break past the window, fall back to the raw spot
+    // snap start to the nearest 15-min mark, but never closer than `gap` to the
+    // previous break, and never before the window start
+    let start = Math.max(snapTo15(cursor), snapUp15(lastEnd + gap), snapUp15(windowStart));
     if (start + d > windowEnd) {
-      start = Math.max(cursor, snapUp15(lastEnd + 15));
+      start = Math.max(cursor, snapUp15(lastEnd + gap));
     }
     breaks.push({ start, end: start + d, duration: d });
     lastEnd = start + d;

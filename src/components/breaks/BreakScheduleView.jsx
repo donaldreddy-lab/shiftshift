@@ -32,7 +32,7 @@ function timeToMinutes(t) {
   return h * 60 + m;
 }
 
-function BreakCell({ b, editing, onUpdate }) {
+function BreakCell({ b, editing, onUpdate, overlap = 1 }) {
   if (!b) {
     return <span className="text-black/30">—</span>;
   }
@@ -104,6 +104,11 @@ function BreakCell({ b, editing, onUpdate }) {
   }
   return (
     <div className="flex flex-col leading-tight">
+      {overlap >= 2 && (
+        <span className={`inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[10px] font-bold mb-1 ${overlap >= 3 ? "bg-red-600 text-white" : "bg-amber-400 text-black"}`}>
+          <AlertTriangle className="w-2.5 h-2.5" /> {overlap} on at once
+        </span>
+      )}
       <span className="text-[12px] font-semibold text-black">{time}</span>
       <span className="text-[11px] text-black/50">({len})</span>
       {coverLine}
@@ -130,6 +135,28 @@ export default function BreakScheduleView({ schedule, onSaved }) {
 
   const maxBreaks = Math.max(1, ...shifts.map((s) => (breaksByName[s.name] || []).length));
   const breakCols = Array.from({ length: maxBreaks }, (_, i) => i);
+
+  // Max concurrent breaks for each break (how many overlap at once) — used to
+  // highlight cells that breach the 2-at-a-time rule.
+  const overlapMap = React.useMemo(() => {
+    const m = new Map();
+    for (const b of breaks) {
+      if (b.start_minutes == null || b.end_minutes == null) { m.set(b, 1); continue; }
+      const events = [];
+      for (const o of breaks) {
+        if (o.start_minutes == null || o.end_minutes == null) continue;
+        if (o.start_minutes < b.end_minutes && b.start_minutes < o.end_minutes) {
+          events.push([Math.max(o.start_minutes, b.start_minutes), 1]);
+          events.push([Math.min(o.end_minutes, b.end_minutes), -1]);
+        }
+      }
+      events.sort((x, y) => x[0] - y[0] || x[1] - y[1]);
+      let cur = 0, mx = 0;
+      for (const ev of events) { cur += ev[1]; if (cur > mx) mx = cur; }
+      m.set(b, mx);
+    }
+    return m;
+  }, [breaks]);
 
   const startEdit = () => {
     setDraft((schedule.breaks || []).map((b, i) => ({ ...b, _idx: i })));
@@ -258,15 +285,21 @@ export default function BreakScheduleView({ schedule, onSaved }) {
                   <td className="text-black border px-3 py-2 align-top" style={{ borderColor: GRID }}>{s.end}</td>
                   {breakCols.map((i) => {
                     const b = bs[i];
+                    const ov = b ? (overlapMap.get(b) || 1) : 0;
                     return (
                       <td
                         key={i}
                         className="border px-3 py-2 align-top"
-                        style={{ borderColor: GRID, background: BREAK_BG[i % BREAK_BG.length] }}
+                        style={{
+                          borderColor: GRID,
+                          background: ov >= 3 ? "#fecaca" : ov === 2 ? "#fde68a" : BREAK_BG[i % BREAK_BG.length],
+                          boxShadow: ov >= 2 ? `inset 0 0 0 2px ${ov >= 3 ? "#dc2626" : "#f59e0b"}` : undefined,
+                        }}
                       >
                         <BreakCell
                           b={b}
                           editing={editing}
+                          overlap={ov}
                           onUpdate={(patch) => b && updateBreak(b._idx, patch)}
                         />
                       </td>

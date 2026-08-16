@@ -70,80 +70,66 @@ function getBreakDurations(shiftMinutes) {
   return [30, 30, 15];
 }
 
-function snapTo15(min) { return Math.round(min / 15) * 15; }
 function snapUp15(min) { return Math.ceil(min / 15) * 15; }
 
-function placeBreaks(shiftStart, shiftEnd, durations) {
-  const windowStart = shiftStart + 120;
-  const windowEnd = shiftEnd - 90;
-  const breaks = [];
-  if (durations.length === 0) return breaks;
-  if (windowEnd <= windowStart) {
-    // not enough room; place what we can starting at shiftStart+120
-    let cursor = Math.max(shiftStart + 120, shiftStart);
-    let lastEnd = shiftStart;
-    for (const d of durations) {
-      let start = Math.max(snapTo15(cursor), snapUp15(lastEnd + 15));
-      if (start + d > shiftEnd - 30) break;
-      breaks.push({ start, end: start + d, duration: d });
-      lastEnd = start + d;
-      cursor = start + d + 15;
+// Max concurrent breaks overlapping [start, end), optionally including
+// self-managed areas. Includes the candidate slot itself in the count.
+function maxConcurrent(placedBreaks, start, end, includeSelf) {
+  const events = [];
+  for (const p of placedBreaks) {
+    if (!includeSelf && SELF_MANAGED.has(p.area)) continue;
+    if (p.start_minutes < end && start < p.end_minutes) {
+      events.push([p.start_minutes, 1]);
+      events.push([p.end_minutes, -1]);
     }
-    return breaks;
   }
-  const totalBreak = durations.reduce((a, b) => a + b, 0);
-  const totalSpan = windowEnd - windowStart;
+  events.push([start, 1]);
+  events.push([end, -1]);
+  events.sort((a, b) => a[0] - b[0] || a[1] - b[1]);
+  let cur = 0, mx = 0;
+  for (const ev of events) { cur += ev[1]; if (cur > mx) mx = cur; }
+  return mx;
+}
 
-  if (durations.length === 1) {
-    const d = durations[0];
-    let start = snapUp15(windowStart);
-    if (start + d > windowEnd) start = windowStart;
-    breaks.push({ start, end: start + d, duration: d });
-    return breaks;
-  }
-
-  if (totalSpan <= totalBreak) {
-    // window too small for real gaps — pack from windowStart with 15-min gaps
-    let cursor = windowStart;
-    let lastEnd = shiftStart;
-    for (const d of durations) {
-      let start = Math.max(cursor, snapUp15(lastEnd + 15));
-      if (start + d > windowEnd) start = cursor;
-      breaks.push({ start, end: start + d, duration: d });
-      lastEnd = start + d;
-      cursor = start + d + 15;
+// Place one shift's breaks into the global list, keeping at most 2 concurrent
+// breaks (hard for non-self-managed areas, soft for self-managed) and a 2-hour
+// gap between one person's own breaks.
+function placeShiftBreaks(shift, placedBreaks, hard) {
+  const durations = getBreakDurations(shift.shift_minutes);
+  const winStart = shift.start_minutes + 120;
+  const winEnd = shift.end_minutes - 90;
+  let prevEnd = shift.start_minutes;
+  for (let i = 0; i < durations.length; i++) {
+    const d = durations[i];
+    const earliest = Math.max(winStart, prevEnd + (i === 0 ? 0 : 120));
+    const latest = winEnd - d;
+    const ideal = winStart + Math.round((i + 1) * (winEnd - winStart - d) / (durations.length + 1));
+    let best = null;
+    if (latest >= earliest) {
+      for (let s = snapUp15(earliest); s <= latest; s += 15) {
+        const e = s + d;
+        const mcHard = maxConcurrent(placedBreaks, s, e, false);
+        if (hard && mcHard > 2) continue;
+        const mcAll = maxConcurrent(placedBreaks, s, e, true);
+        const score = mcAll * 10000 + Math.abs(s - ideal);
+        if (!best || score < best.score) best = { start: s, end: e, duration: d, score };
+      }
     }
-    return breaks;
-  }
-
-  const n = durations.length;
-  const MIN_GAP = 120; // 2 hours between consecutive breaks
-  let gap, margin;
-  if (totalSpan >= totalBreak + (n - 1) * MIN_GAP) {
-    // enough room: keep breaks 2h apart and split the slack evenly between
-    // the start and end of the shift so no big unbroken chunk is left at the end
-    gap = MIN_GAP;
-    margin = Math.floor((totalSpan - totalBreak - (n - 1) * MIN_GAP) / 2);
-  } else {
-    // shift too short for 2h gaps — use the largest gap that fits, edge to edge
-    gap = Math.floor((totalSpan - totalBreak) / (n - 1));
-    margin = 0;
-  }
-
-  let cursor = windowStart + margin;
-  let lastEnd = shiftStart;
-  for (const d of durations) {
-    // snap start to the nearest 15-min mark, but never closer than `gap` to the
-    // previous break, and never before the window start
-    let start = Math.max(snapTo15(cursor), snapUp15(lastEnd + gap), snapUp15(windowStart));
-    if (start + d > windowEnd) {
-      start = Math.max(cursor, snapUp15(lastEnd + gap));
+    if (!best) {
+      const s = snapUp15(earliest);
+      best = { start: s, end: s + d, duration: d };
     }
-    breaks.push({ start, end: start + d, duration: d });
-    lastEnd = start + d;
-    cursor = start + d + gap;
+    placedBreaks.push({
+      team_member: shift.name,
+      area: shift.area,
+      start_minutes: best.start,
+      end_minutes: best.end,
+      start: minutesToTime(best.start),
+      end: minutesToTime(best.end),
+      duration: best.duration
+    });
+    prevEnd = best.end;
   }
-  return breaks;
 }
 
 function overlaps(aStart, aEnd, bStart, bEnd) {
@@ -272,27 +258,26 @@ export default async function(req) {
       }
     }
 
-    // Generate breaks
-    const allBreaks = [];
-    for (const shift of shifts) {
-      const durations = getBreakDurations(shift.shift_minutes);
-      const placed = placeBreaks(shift.start_minutes, shift.end_minutes, durations);
-      for (const b of placed) {
-        allBreaks.push({
-          team_member: shift.name,
-          area: shift.area,
-          start_minutes: b.start,
-          end_minutes: b.end,
-          start: minutesToTime(b.start),
-          end: minutesToTime(b.end),
-          duration: b.duration,
-          cover: "",
-          cover_area: "",
-          status: "unassigned",
-          flag_reason: ""
-        });
-      }
-    }
+    // Generate breaks globally: non-self-managed first (hard 2-overlap limit),
+    // then self-managed (soft — tries to keep total ≤ 2 but allows more).
+    const placedBreaks = [];
+    const orderedShifts = shifts.slice().sort((a, b) => a.start_minutes - b.start_minutes);
+    for (const s of orderedShifts) if (!SELF_MANAGED.has(s.area)) placeShiftBreaks(s, placedBreaks, true);
+    for (const s of orderedShifts) if (SELF_MANAGED.has(s.area)) placeShiftBreaks(s, placedBreaks, false);
+
+    const allBreaks = placedBreaks.map((p) => ({
+      team_member: p.team_member,
+      area: p.area,
+      start_minutes: p.start_minutes,
+      end_minutes: p.end_minutes,
+      start: p.start,
+      end: p.end,
+      duration: p.duration,
+      cover: "",
+      cover_area: "",
+      status: "unassigned",
+      flag_reason: ""
+    }));
 
     // Sort breaks by start time for greedy assignment
     allBreaks.sort((a, b) => a.start_minutes - b.start_minutes);
